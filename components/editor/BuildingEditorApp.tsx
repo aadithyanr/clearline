@@ -26,9 +26,9 @@ export default function BuildingEditorApp() {
             </div>
           </div>
           <Link
-            href="/"
-            className="inline-flex items-center gap-2 px-5 py-2.5 rounded-full font-semibold text-sm bg-white/70 border border-white/90 text-indigo-600 shadow-[0_2px_12px_rgba(99,102,241,0.12)] hover:bg-white hover:text-indigo-700 transition-all duration-200 ease-out"
-            aria-label="Back to home"
+            href="/map"
+            className="inline-flex items-center gap-2 px-5 py-2.5 rounded-full font-semibold text-sm bg-white/70 border border-slate-200 text-slate-600 shadow-[0_2px_12px_rgba(2,6,23,0.05)] hover:bg-white hover:text-slate-900 transition-all duration-200 ease-out"
+            aria-label="Back to dashboard"
           >
             <span aria-hidden>
               <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
