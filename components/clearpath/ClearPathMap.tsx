@@ -19,6 +19,8 @@ import type { TimelinePrediction } from '@/lib/clearpath/trafficPrediction';
 import type { Blueprint, ProposedBuilding } from '@/lib/clearpath/blueprints';
 import type { SimulateResult } from '@/lib/clearpath/types';
 import type { ScoredHospital } from '@/lib/clearpath/types';
+import type { EmergencyCase } from '@/lib/clearpath/caseTypes';
+import ActiveCasesLayer from './dispatch/ActiveCasesLayer';
 
 mapboxgl.accessToken = process.env.NEXT_PUBLIC_MAPBOX_TOKEN ?? '';
 
@@ -42,6 +44,9 @@ interface ClearPathMapProps {
   trafficDragging?: boolean;
   selectedBlueprint?: Blueprint | null;
   mapStyle?: string;
+  dispatchCases?: EmergencyCase[];
+  selectedDispatchCase?: string | null;
+  onDispatchCaseSelect?: (c: EmergencyCase) => void;
 }
 
 const CONGESTION_COLORS: Record<string, string> = {
@@ -116,6 +121,9 @@ export default function ClearPathMap({
   trafficDragging,
   selectedBlueprint,
   mapStyle = 'mapbox://styles/mapbox/navigation-night-v1',
+  dispatchCases = [],
+  selectedDispatchCase,
+  onDispatchCaseSelect,
 }: ClearPathMapProps) {
   const mapContainer = useRef<HTMLDivElement>(null);
   const mapRef = useRef<mapboxgl.Map | null>(null);
@@ -324,16 +332,18 @@ export default function ClearPathMap({
     }
   }, [mode, proposedLocations]);
 
+  const hospitalMarkersRef = useRef<mapboxgl.Marker[]>([]);
+
   useEffect(() => {
     const map = mapRef.current;
     if (!map) return;
     let cancelled = false;
 
     // Clean up previous markers and route
-    recommendedMarkerRef.current?.remove();
-    recommendedMarkerRef.current = null;
     userMarkerRef.current?.remove();
     userMarkerRef.current = null;
+    hospitalMarkersRef.current.forEach(m => m.remove());
+    hospitalMarkersRef.current = [];
 
     cancelAnimationFrame(trafficAnimRef.current);
 
@@ -379,6 +389,33 @@ export default function ClearPathMap({
         .setLngLat([userLoc.lng, userLoc.lat])
         .addTo(map);
     }
+
+    // Helper to add hospital markers
+    const addHospitalMarker = (hosp: any, isTarget: boolean) => {
+      if (!hosp?.latitude || !hosp?.longitude) return;
+      const el = document.createElement('div');
+      el.innerHTML = `
+        <div style="display:flex; flex-direction:column; align-items:center;">
+          <div style="background:${isTarget ? '#22c55e' : '#94a3b8'}; color:white; padding:4px 8px; border-radius:8px; font-weight:bold; font-size:12px; box-shadow:0 4px 12px rgba(0,0,0,0.3); border:2px solid white; white-space:nowrap; margin-bottom:4px;">
+            ${isTarget ? '★ Target: ' : ''}${hosp.name}
+          </div>
+          <div style="width:12px; height:12px; background:${isTarget ? '#22c55e' : '#94a3b8'}; border-radius:50%; border:2px solid white; box-shadow:0 2px 8px rgba(0,0,0,0.4);"></div>
+        </div>
+      `;
+      const marker = new mapboxgl.Marker({ element: el, anchor: 'bottom' })
+        .setLngLat([hosp.longitude, hosp.latitude])
+        .addTo(map);
+      hospitalMarkersRef.current.push(marker);
+    };
+
+    // Draw the target hospital
+    addHospitalMarker(h, true);
+
+    // Draw the alternative hospitals
+    const alts = mode === 'government' ? [] : (recHosp.alternatives ?? []);
+    alts.forEach((alt: ScoredHospital) => {
+      addHospitalMarker(alt.hospital, false);
+    });
 
     // Use activeRoute if set (from "Show Route" on an alternative), otherwise use recommended
     const activeRoute = recHosp.activeRoute;
@@ -616,8 +653,16 @@ export default function ClearPathMap({
         <React.Fragment key={styleEpoch}>
           <HospitalFootprintsLayer map={mapInstance} />
           <LandmarksLayer map={mapInstance} />
-          {layerVisibility.hospitals && (
+          {layerVisibility.hospitals && !selectedDispatchCase && (
             <CongestionLayer map={mapInstance} hospitals={hospitals} congestion={congestion} onHospitalSelect={setSelectedHospital} simulationResult={simulationResult} />
+          )}
+          {dispatchCases.length > 0 && onDispatchCaseSelect && (
+            <ActiveCasesLayer 
+              map={mapInstance} 
+              cases={dispatchCases} 
+              onCaseSelect={onDispatchCaseSelect} 
+              selectedCaseId={selectedDispatchCase} 
+            />
           )}
           {mode === 'government' && (
             <>

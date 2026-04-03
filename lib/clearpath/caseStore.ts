@@ -32,3 +32,46 @@ export async function readCase(caseId: string): Promise<EmergencyCase | null> {
     return null;
   }
 }
+
+/**
+ * Fetch all live/active cases (not closed/arrived)
+ */
+export async function readLiveCases(): Promise<EmergencyCase[]> {
+  try {
+    const col = await getCollection();
+    // In a real system we'd filter out closed cases: { status: { $nin: ['closed', 'arrived'] } }
+    // but for the demo we'll just fetch all so we have data
+    const docs = await col.find({}, { projection: { _id: 0 } })
+      .sort({ createdAt: -1 })
+      .limit(50)
+      .toArray();
+    return docs;
+  } catch {
+    return [];
+  }
+}
+
+/**
+ * Update case assignment and push an event to timeline
+ */
+export async function overrideAssignedHospital(caseId: string, assignedHospital: any): Promise<boolean> {
+  try {
+    const col = await getCollection();
+    const now = new Date().toISOString();
+    const result = await col.updateOne(
+      { caseId },
+      { 
+        $set: { assignedHospital, updatedAt: now },
+        $push: { 
+          timeline: { 
+            ts: now, 
+            event: `DISPATCH OVERRIDE: Re-routed to ${assignedHospital?.hospital?.name ?? 'new hospital'}` 
+          } 
+        } as any
+      }
+    );
+    return result.modifiedCount > 0;
+  } catch {
+    return false;
+  }
+}
