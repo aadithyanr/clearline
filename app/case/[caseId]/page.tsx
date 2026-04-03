@@ -9,20 +9,18 @@ export default async function CasePage({ params }: any) {
   let initialData = null;
   let initialError = null;
 
+  // Determine base URL for API calls (Vercel or local dev)
+  const baseUrl = process.env.BASE_URL || (process.env.VERCEL_URL ? `https://${process.env.VERCEL_URL}` : 'http://localhost:3000');
+  const apiUrl = `${baseUrl}/api/cases?id=${caseId}`;
   try {
-    const fallbackPath = path.join(process.cwd(), '.next', 'fallback_cases.json');
-    if (fs.existsSync(fallbackPath)) {
-      const db = JSON.parse(fs.readFileSync(fallbackPath, 'utf-8'));
-      if (db[caseId]) {
-        initialData = db[caseId];
-      } else {
-        initialError = "Case not found or expired.";
-      }
+    const res = await fetch(apiUrl);
+    if (res.ok) {
+      initialData = await res.json();
     } else {
-      initialError = "Case database not found.";
+      initialError = `Case not found (status ${res.status})`;
     }
   } catch (err) {
-    initialError = "Failed to load case data.";
+    initialError = 'Failed to load case data.';
   }
   
   return <CasePageContent caseId={caseId} initialData={initialData} initialError={initialError} />;
