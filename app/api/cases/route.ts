@@ -102,19 +102,29 @@ export async function POST(req: NextRequest) {
       updatedAt: now,
     };
 
-    // Always write to fast local file-store first for instant reads
-    const db = readFallbackDB();
-    db[caseId] = emergencyCase;
-    writeFallbackDB(db);
+    // Determine base URL for case link
+    const baseUrl = process.env.BASE_URL || req.nextUrl.origin;
+    const caseUrl = `${baseUrl}/case/${caseId}`;
 
-    // Fire and forget MongoDB insertion so it doesn't block the request if the cluster hangs
-    getCollection()
-      .then(col => col.insertOne(emergencyCase))
-      .catch(err => console.error('[MongoDB Error - Non-fatal]', err));
+    // Write to fallback DB for local dev
+    if (!process.env.VERCEL) {
+      const db = readFallbackDB();
+      db[caseId] = emergencyCase;
+      writeFallbackDB(db);
+    }
+
+    // Insert into MongoDB with a timeout to avoid hanging the request
+    const insertPromise = getCollection().then(col => col.insertOne(emergencyCase));
+    const timeoutPromise = new Promise((_, reject) => setTimeout(() => reject(new Error('Mongo insert timeout')), 3000));
+    try {
+      await Promise.race([insertPromise, timeoutPromise]);
+    } catch (e) {
+      console.error('[MongoDB Insert Error]', e);
+    }
 
     return NextResponse.json({
       caseId,
-      caseUrl: `${req.nextUrl.origin}/case/${caseId}`,
+      caseUrl,
       severity: triage.severity,
       hospital: routeResult.recommended.hospital.name,
       drivingTimeMinutes: routeResult.recommended.drivingTimeMinutes,

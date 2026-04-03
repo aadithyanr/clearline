@@ -141,7 +141,9 @@ export class WhatsappBot {
     await message.reply('Location received. AI Triage is running to find the best hospital... 🏃‍♂️🚑');
 
     try {
-      const res = await fetch('http://localhost:3000/api/cases', {
+      // Determine base URL for API calls (Vercel or local)
+      const baseUrl = process.env.BASE_URL || (process.env.VERCEL_URL ? `https://${process.env.VERCEL_URL}` : 'http://localhost:3000');
+      const res = await fetch(`${baseUrl}/api/cases`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
