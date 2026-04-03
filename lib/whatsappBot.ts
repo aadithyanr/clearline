@@ -3,6 +3,7 @@ import WhatsAppWeb from 'whatsapp-web.js';
 import qrcode from 'qrcode-terminal';
 import * as fs from 'fs/promises';
 import { existsSync } from 'fs';
+import * as path from 'path';
 import * as os from 'os';
 
 const { Client, LocalAuth, Message, MessageMedia } = WhatsAppWeb as any;
@@ -88,7 +89,33 @@ export class WhatsappBot {
   }
 
   // State machine per user phone number
-  sessions = new Map<string, { step: 'idle' | 'awaiting_location'; distressMessage?: string }>();
+  sessions = new Map<string, {
+    step: 'idle' | 'awaiting_location';
+    distressMessage?: string;
+  }>();
+
+  /** Reverse-geocode lat/lng → city slug using Mapbox. Falls back to 'pune'. */
+  async detectCity(lat: number, lng: number): Promise<string> {
+    try {
+      const token = process.env.NEXT_PUBLIC_MAPBOX_TOKEN;
+      if (!token) return 'pune';
+      const url = `https://api.mapbox.com/geocoding/v5/mapbox.places/${lng},${lat}.json?types=place&limit=1&access_token=${token}`;
+      const res = await fetch(url);
+      if (!res.ok) return 'pune';
+      const data = await res.json() as { features?: { text?: string }[] };
+      const city = data.features?.[0]?.text?.toLowerCase().trim() ?? 'pune';
+      // Normalise common aliases
+      const aliases: Record<string, string> = {
+        'mumbai': 'mumbai', 'bombay': 'mumbai',
+        'pune': 'pune', 'poona': 'pune',
+        'delhi': 'delhi', 'new delhi': 'delhi',
+        'bengaluru': 'bengaluru', 'bangalore': 'bengaluru',
+      };
+      return aliases[city] ?? city;
+    } catch {
+      return 'pune';
+    }
+  }
 
   async handleText(message: any) {
     const text = message.body.trim();
@@ -141,8 +168,8 @@ export class WhatsappBot {
     await message.reply('Location received. AI Triage is running to find the best hospital... 🏃‍♂️🚑');
 
     try {
-      // Determine base URL for API calls (Vercel or local)
       const baseUrl = process.env.BASE_URL || (process.env.VERCEL_URL ? `https://${process.env.VERCEL_URL}` : 'http://localhost:3000');
+      const city = await this.detectCity(loc.latitude, loc.longitude);
       const res = await fetch(`${baseUrl}/api/cases`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -150,7 +177,7 @@ export class WhatsappBot {
           message: session.distressMessage,
           userLat: loc.latitude,
           userLng: loc.longitude,
-          city: 'pune',
+          city,
         }),
       });
 
@@ -178,27 +205,47 @@ export class WhatsappBot {
   }
 
   async handleAudio(message: any) {
+    const from = message.from;
     try {
       const media = await message.downloadMedia();
-      if (!media) {
-        await message.reply('Failed to download audio.');
+      if (!media?.data) {
+        await message.reply('Could not download your voice note. Please try again or type your symptoms instead.');
         return;
       }
 
-      await message.reply('Audio received. Sending for transcription (not yet implemented).');
-      // TODO: decode and send to /api/transcribe or external service.
+      await message.reply('🎙️ Voice note received. Transcribing...');
 
-      // Example placeholder: save to disk if needed.
-      if (media && media.data) {
-        const filename = `./tmp/whatsapp-audio-${Date.now()}.ogg`;
-        const buffer = Buffer.from(media.data, 'base64');
-        await fs.mkdir('./tmp', { recursive: true });
-        await fs.writeFile(filename, buffer);
-        console.log('[WA] Audio saved to', filename);
+      // Transcribe via /api/transcribe (ElevenLabs STT)
+      const baseUrl = process.env.BASE_URL || (process.env.VERCEL_URL ? `https://${process.env.VERCEL_URL}` : 'http://localhost:3000');
+      const audioBuffer = Buffer.from(media.data, 'base64');
+      const blob = new Blob([audioBuffer], { type: media.mimetype || 'audio/ogg' });
+      const formData = new FormData();
+      formData.append('audio', blob, 'recording.ogg');
+
+      const transcribeRes = await fetch(`${baseUrl}/api/transcribe`, {
+        method: 'POST',
+        body: formData,
+      });
+
+      if (!transcribeRes.ok) throw new Error(`Transcription failed: ${transcribeRes.status}`);
+      const { text } = await transcribeRes.json() as { text: string };
+
+      if (!text?.trim()) {
+        await message.reply('Could not understand the audio. Please type your symptoms instead.');
+        return;
       }
+
+      console.log(`[WA] Transcribed audio from ${from}: "${text}"`);
+
+      // Treat the transcribed text exactly like a typed distress message
+      this.sessions.set(from, { step: 'awaiting_location', distressMessage: text });
+      await message.reply(
+        `Got it — I heard: _"${text}"_\n\n` +
+        'To find the nearest capable emergency room, tap the 📎 attachment button and *Share your Current Location* 📍'
+      );
     } catch (err) {
       console.error('[WA] handleAudio error', err);
-      await message.reply('Audio handling failed.');
+      await message.reply('Could not process your voice note. Please type your symptoms instead.');
     }
   }
 

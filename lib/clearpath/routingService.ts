@@ -4,33 +4,63 @@ import { getAdjustedDrivingTime, getAdjustedWaitTime, getTemporalContext } from 
 
 // Severity-based weight profiles
 const WEIGHTS: Record<string, { drive: number; wait: number; occ: number; spec: number }> = {
-  critical: { drive: 5.0, wait: 0.5, occ: 0.3, spec: 3.0 },
-  urgent: { drive: 2.0, wait: 3.0, occ: 1.5, spec: 1.5 },
-  'non-urgent': { drive: 1.0, wait: 4.0, occ: 2.0, spec: 0.5 },
+  critical:    { drive: 5.0, wait: 0.5, occ: 0.3, spec: 4.0 },
+  urgent:      { drive: 2.0, wait: 3.0, occ: 1.5, spec: 2.5 },
+  'non-urgent':{ drive: 1.0, wait: 4.0, occ: 2.0, spec: 0.5 },
 };
 
-// Map symptom keys to hospital specialties
+// Map triage predictedNeeds → hospital specialty tags
+const NEEDS_TO_SPECIALTIES: Record<string, string[]> = {
+  cardiac:      ['cardiac'],
+  ICU:          ['cardiac', 'general'],
+  ventilator:   ['respiratory', 'cardiac'],
+  neurosurgeon: ['neurology', 'stroke'],
+  trauma:       ['trauma'],
+  burns:        ['burns'],
+  paediatrics:  ['paediatrics'],
+  obstetrics:   ['obstetrics'],
+  ophthalmology:['ophthalmology'],
+  dialysis:     ['dialysis', 'nephrology'],
+  respiratory:  ['respiratory'],
+  general:      [],
+};
+
+// Legacy symptom-boolean → specialty map (kept for backward compat)
 const SYMPTOM_SPECIALTY_MAP: Record<string, string[]> = {
-  chestPain: ['cardiac'],
-  shortnessOfBreath: ['cardiac', 'respiratory'],
+  chestPain:        ['cardiac'],
+  shortnessOfBreath:['cardiac', 'respiratory'],
   injuryOrBleeding: ['trauma'],
-  dizziness: ['neurology', 'stroke'],
-  severeHeadache: ['neurology', 'stroke'],
+  dizziness:        ['neurology', 'stroke'],
+  severeHeadache:   ['neurology', 'stroke'],
 };
 
-function getSpecialtyScore(hospital: any, symptoms?: SymptomsPayload | null): { score: number; match: boolean } {
-  if (!symptoms) return { score: 0, match: false };
-
+function getSpecialtyScore(
+  hospital: any,
+  symptoms?: SymptomsPayload | null,
+  predictedNeeds?: string[],
+): { score: number; match: boolean } {
   const needed: string[] = [];
-  for (const [key, specialties] of Object.entries(SYMPTOM_SPECIALTY_MAP)) {
-    if ((symptoms as any)[key]) needed.push(...specialties);
+
+  // Prefer predictedNeeds from triage (richer signal)
+  if (predictedNeeds?.length) {
+    for (const need of predictedNeeds) {
+      const mapped = NEEDS_TO_SPECIALTIES[need];
+      if (mapped) needed.push(...mapped);
+    }
+  } else if (symptoms) {
+    // Fall back to legacy boolean symptoms
+    for (const [key, specialties] of Object.entries(SYMPTOM_SPECIALTY_MAP)) {
+      if ((symptoms as any)[key]) needed.push(...specialties);
+    }
   }
+
   if (needed.length === 0) return { score: 0, match: false };
 
-  const has = hospital.specialties ?? [];
-  const matched = needed.filter((s: string) => has.includes(s)).length;
+  const has: string[] = hospital.specialties ?? [];
+  const matched = needed.filter((s) => has.includes(s)).length;
   const match = matched > 0;
-  const score = needed.length > 0 ? (1 - matched / needed.length) * 50 : 0;
+  // Penalty: higher when fewer specialties match (0 if perfect match)
+  const score = (1 - matched / needed.length) * 60;
   return { score, match };
 }
 
@@ -40,9 +70,18 @@ export async function scoreAndRankHospitals(
   severity: string,
   hospitals: any[],
   snapshots: any[],
-  symptoms?: SymptomsPayload | null
+  symptoms?: SymptomsPayload | null,
+  predictedNeeds?: string[],
 ): Promise<{ recommended: ScoredHospital; alternatives: ScoredHospital[] } | null> {
   if (!hospitals.length) return null;
+
+  // For critical/urgent, drop clinics that are too small to handle real emergencies
+  const minErBeds = severity === 'critical' ? 3 : severity === 'urgent' ? 2 : 0;
+  const capable = minErBeds > 0
+    ? hospitals.filter((h) => (h.erBeds ?? 0) >= minErBeds)
+    : hospitals;
+  // Safety net: if filtering leaves nothing, fall back to all hospitals
+  const pool = capable.length >= 3 ? capable : hospitals;
 
   const now = new Date();
   const weights = WEIGHTS[severity] ?? WEIGHTS['non-urgent'];
@@ -55,7 +94,7 @@ export async function scoreAndRankHospitals(
   }
 
   // Get real driving times from Mapbox Directions API (parallel)
-  const destinations = hospitals.map((h: any) => ({
+  const destinations = pool.map((h: any) => ({
     lng: h.longitude,
     lat: h.latitude,
     id: h._id?.toString() ?? h.id,
@@ -64,7 +103,7 @@ export async function scoreAndRankHospitals(
   const directionsMap = await getBatchDirections(userLng, userLat, destinations);
 
   // Score each hospital
-  const scored: ScoredHospital[] = hospitals.map((h: any) => {
+  const scored: ScoredHospital[] = pool.map((h: any) => {
     const hId = h._id?.toString() ?? h.id;
     const congestion = congestionMap[hId] ?? { occupancyPct: 70, waitMinutes: 90 };
     const directions = directionsMap.get(hId);
@@ -82,7 +121,7 @@ export async function scoreAndRankHospitals(
     const occupancyPenalty = Math.max(0, ((congestion.occupancyPct - 70) / 30) * 100);
 
     // Specialty match
-    const specialty = getSpecialtyScore(h, symptoms);
+    const specialty = getSpecialtyScore(h, symptoms, predictedNeeds);
 
     // Compute weighted score (lower = better)
     const score =

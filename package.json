@@ -6,7 +6,9 @@
     "dev": "next dev",
     "build": "next build",
     "start": "next start",
-    "lint": "eslint"
+    "lint": "eslint",
+    "bot": "ts-node --esm --project tsconfig.json scripts/runWhatsappBot.ts",
+    "bot:dev": "ts-node --esm --project tsconfig.json --watch scripts/runWhatsappBot.ts"
   },
   "dependencies": {
     "@react-three/drei": "^10.7.7",
@@ -22,6 +24,7 @@
     "lucide-react": "^1.7.0",
     "mapbox-gl": "^3.21.0",
     "mongodb": "^6.10.0",
+    "nanoid": "^5.1.7",
     "next": "16.2.2",
     "openai": "^6.33.0",
     "qrcode-terminal": "^0.12.0",

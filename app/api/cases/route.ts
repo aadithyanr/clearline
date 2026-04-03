@@ -1,39 +1,18 @@
 // POST /api/cases  — create a new emergency case (triage + route in one shot)
-// GET  /api/cases/[id] — fetch a case by ID (used by the public case page)
+// GET  /api/cases?id=CL-XXXX — fetch a case by ID
 
 import { NextRequest, NextResponse } from 'next/server';
 import { nanoid } from 'nanoid';
-import * as fs from 'fs';
-import * as path from 'path';
-import { mockHospitals } from '@/lib/clearpath/mockData';
 import { scoreAndRankHospitals } from '@/lib/clearpath/routingService';
+import { saveCase, readCase } from '@/lib/clearpath/caseStore';
 import type { EmergencyCase, TriageResult } from '@/lib/clearpath/caseTypes';
 
 export const maxDuration = 30;
 
-// File-based store as fallback when MongoDB is down to survive Next.js HMR reload
-const FALLBACK_FILE = path.join(process.cwd(), '.next', 'fallback_cases.json');
-
-function readFallbackDB(): Record<string, EmergencyCase> {
-  try {
-    if (fs.existsSync(FALLBACK_FILE)) {
-      return JSON.parse(fs.readFileSync(FALLBACK_FILE, 'utf-8'));
-    }
-  } catch (e) {}
-  return {};
-}
-
-function writeFallbackDB(data: Record<string, EmergencyCase>) {
-  try {
-    fs.mkdirSync(path.dirname(FALLBACK_FILE), { recursive: true });
-    fs.writeFileSync(FALLBACK_FILE, JSON.stringify(data, null, 2), 'utf-8');
-  } catch (e) {}
-}
-
-async function getCollection() {
+async function getHospitalsForCity(city: string) {
   const { getDb } = await import('@/lib/clearpath/mongoClient');
   const db = await getDb();
-  return db.collection<EmergencyCase>('cases');
+  return db.collection('hospitals').find({ city: city.toLowerCase() }).toArray();
 }
 
 // ── POST /api/cases ──────────────────────────────────────────────────────────
@@ -60,10 +39,10 @@ export async function POST(req: NextRequest) {
     });
     const triage: TriageResult = await triageRes.json();
 
-    // ── Step 2: Route ────────────────────────────────────────────────────────
-    const hospitals = mockHospitals.filter(h => h.city === city.toLowerCase());
-    const snapshots = hospitals.map(h => ({
-      hospitalId: h.id,
+    // ── Step 2: Route using live MongoDB hospital data ────────────────────────
+    const hospitals = await getHospitalsForCity(city);
+    const snapshots = hospitals.map((h: any) => ({
+      hospitalId: h._id.toString(),
       occupancyPct: 50 + Math.floor(Math.random() * 40),
       waitMinutes: 10 + Math.floor(Math.random() * 70),
       recordedAt: new Date().toISOString(),
@@ -74,14 +53,15 @@ export async function POST(req: NextRequest) {
       triage.severity,
       hospitals,
       snapshots,
-      null
+      null,
+      triage.predictedNeeds,
     );
 
     if (!routeResult) {
       return NextResponse.json({ error: 'No hospitals found' }, { status: 404 });
     }
 
-    // ── Step 3: Create Case ──────────────────────────────────────────────────
+    // ── Step 3: Create & persist case ────────────────────────────────────────
     const caseId = `CL-${nanoid(6).toUpperCase()}`;
     const now = new Date().toISOString();
 
@@ -102,29 +82,13 @@ export async function POST(req: NextRequest) {
       updatedAt: now,
     };
 
-    // Determine base URL for case link
+    await saveCase(emergencyCase);
+
     const baseUrl = process.env.BASE_URL || req.nextUrl.origin;
-    const caseUrl = `${baseUrl}/case/${caseId}`;
-
-    // Write to fallback DB for local dev
-    if (!process.env.VERCEL) {
-      const db = readFallbackDB();
-      db[caseId] = emergencyCase;
-      writeFallbackDB(db);
-    }
-
-    // Insert into MongoDB with a timeout to avoid hanging the request
-    const insertPromise = getCollection().then(col => col.insertOne(emergencyCase));
-    const timeoutPromise = new Promise((_, reject) => setTimeout(() => reject(new Error('Mongo insert timeout')), 3000));
-    try {
-      await Promise.race([insertPromise, timeoutPromise]);
-    } catch (e) {
-      console.error('[MongoDB Insert Error]', e);
-    }
 
     return NextResponse.json({
       caseId,
-      caseUrl,
+      caseUrl: `${baseUrl}/case/${caseId}`,
       severity: triage.severity,
       hospital: routeResult.recommended.hospital.name,
       drivingTimeMinutes: routeResult.recommended.drivingTimeMinutes,
@@ -141,24 +105,7 @@ export async function GET(req: NextRequest) {
   const id = req.nextUrl.searchParams.get('id');
   if (!id) return NextResponse.json({ error: 'id required' }, { status: 400 });
 
-  // ALWAYS resolve from file-store first if it exists to prevent Mongo hangs
-  const db = readFallbackDB();
-  if (db[id]) {
-    return NextResponse.json(db[id]);
-  }
-
-  // Only if missing from local cache, try MongoDB with a strict timeout
-  try {
-    const col = await getCollection();
-    // Using a simple Promise.race to enforce a 3s timeout on the MongoDB read
-    const doc = await Promise.race([
-      col.findOne({ caseId: id }),
-      new Promise((_, reject) => setTimeout(() => reject('timeout'), 3000))
-    ]);
-    
-    if (!doc) return NextResponse.json({ error: 'Case not found' }, { status: 404 });
-    return NextResponse.json(doc);
-  } catch (err) {
-    return NextResponse.json({ error: 'Case not found' }, { status: 404 });
-  }
+  const doc = await readCase(id);
+  if (!doc) return NextResponse.json({ error: 'Case not found' }, { status: 404 });
+  return NextResponse.json(doc);
 }
