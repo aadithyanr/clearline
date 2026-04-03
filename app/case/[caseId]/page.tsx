@@ -1,7 +1,13 @@
 import { Suspense } from 'react';
 import CasePageContent from './CasePageContent';
 
-export default function CasePage({ params }: { params: { caseId: string } }) {
+export default async function CasePage({ params }: any) {
+  // Try resolving as a promise just in case, but also handle it if it's a plain object
+  const resolvedParams = await Promise.resolve(params);
+  
+  console.log('[DEBUG] CasePage raw params:', params);
+  console.log('[DEBUG] CasePage resolved params:', resolvedParams);
+  
   return (
     <Suspense fallback={
       <div className="fixed inset-0 bg-slate-950 flex items-center justify-center">
@@ -11,7 +17,8 @@ export default function CasePage({ params }: { params: { caseId: string } }) {
         </div>
       </div>
     }>
-      <CasePageContent caseId={params.caseId} />
+      <CasePageContent />
     </Suspense>
   );
 }
+

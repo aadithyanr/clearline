@@ -10,7 +10,11 @@ import type { EmergencyCase, TriageResult } from '@/lib/clearpath/caseTypes';
 export const maxDuration = 30;
 
 // In-memory store as fallback when MongoDB is down (works fine for demo)
-const memStore = new Map<string, EmergencyCase>();
+const globalStore = globalThis as unknown as { __casesStore: Map<string, EmergencyCase> };
+if (!globalStore.__casesStore) {
+  globalStore.__casesStore = new Map<string, EmergencyCase>();
+}
+const memStore = globalStore.__casesStore;
 
 async function getCollection() {
   const { getDb } = await import('@/lib/clearpath/mongoClient');

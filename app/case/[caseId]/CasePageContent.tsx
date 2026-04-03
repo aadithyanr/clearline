@@ -2,6 +2,7 @@
 
 import { useEffect, useState, useRef } from 'react';
 import dynamic from 'next/dynamic';
+import { useParams } from 'next/navigation';
 import type { EmergencyCase } from '@/lib/clearpath/caseTypes';
 
 const CaseMap = dynamic(() => import('./CaseMap'), { ssr: false });
@@ -12,13 +13,18 @@ const SEVERITY_CONFIG = {
   'non-urgent': { color: '#22c55e', bg: 'bg-green-500', label: 'NON-URGENT', text: 'text-green-400', border: 'border-green-500/30', glow: 'shadow-green-500/20' },
 };
 
-export default function CasePageContent({ caseId }: { caseId: string }) {
+export default function CasePageContent() {
+  const params = useParams();
+  const caseId = params?.caseId as string;
+  
   const [caseData, setCaseData] = useState<EmergencyCase | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [elapsed, setElapsed] = useState(0);
   const timerRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
   useEffect(() => {
+    if (!caseId || caseId === 'undefined') return;
+
     fetch(`/api/cases?id=${caseId}`)
       .then(r => r.ok ? r.json() : Promise.reject('Case not found'))
       .then(data => {
