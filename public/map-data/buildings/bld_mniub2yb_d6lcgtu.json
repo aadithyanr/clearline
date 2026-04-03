@@ -1,0 +1,23 @@
+{
+  "id": "bld_mniub2yb_d6lcgtu",
+  "name": "idk",
+  "beds": 0,
+  "metadata": {
+    "totalBeds": 0,
+    "erBeds": 0,
+    "operatingRooms": 0,
+    "traumaRooms": 0,
+    "ambulances": 0,
+    "rooms": 7,
+    "doctors": 0,
+    "nurses": 0,
+    "usableInpatientBeds": 0,
+    "usableERBays": 0,
+    "usableORs": 0,
+    "totalFloorArea": 4275,
+    "groundFloorArea": 1425,
+    "numberOfFloors": 3,
+    "createdAt": "2026-04-03T11:48:20.514Z"
+  },
+  "createdAt": "2026-04-03T11:48:20.537Z"
+}

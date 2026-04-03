@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { getDb } from '@/lib/clearpath/mongoClient';
+import { mockHospitals } from '@/lib/clearpath/mockData';
 
 export async function GET(req: NextRequest) {
   const city = req.nextUrl.searchParams.get('city');
@@ -9,9 +10,14 @@ export async function GET(req: NextRequest) {
     const hospitals = await db.collection('hospitals')
       .find(query)
       .toArray();
-    return NextResponse.json(hospitals);
+    if (hospitals.length > 0) return NextResponse.json(hospitals);
+    // DB connected but empty — fall through to mock
+    throw new Error('Empty collection');
   } catch (e) {
-    console.warn('Hospitals API: DB unavailable', e);
-    return NextResponse.json([]);
+    console.warn('Hospitals API: DB unavailable, using mock data');
+    const filtered = city
+      ? mockHospitals.filter(h => h.city === city.toLowerCase())
+      : mockHospitals;
+    return NextResponse.json(filtered);
   }
 }
