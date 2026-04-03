@@ -1,3 +1,35 @@
+// ── LSTM-powered congestion prediction ────────────────────────
+export async function getLSTMCongestion(
+  city: "mumbai" | "pune" | "nagpur",
+  roadType: "highway" | "arterial" | "local" = "arterial",
+  overrideHour?: number
+): Promise<number> {
+  const now = new Date()
+  const hour = overrideHour ?? now.getHours()
+  const day_of_week = now.getDay() === 0 ? 6 : now.getDay() - 1
+  const month = now.getMonth() + 1
+
+  // Maharashtra public holidays (MM-DD)
+  const holidays = ["01-01", "01-26", "03-25", "04-14", "05-01",
+    "08-15", "10-02", "11-01", "12-25"]
+  const today = `${String(month).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')}`
+  const is_holiday = holidays.includes(today) ? 1 : 0
+
+  try {
+    const res = await fetch("/api/clearpath/predict-congestion", {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ city, road_type: roadType, hour, day_of_week, month, is_holiday }),
+    })
+    const { congestion_multiplier } = await res.json()
+    return congestion_multiplier
+  } catch {
+    // Fallback to existing hardcoded array if model is unreachable
+    const fallback = TRAFFIC_MULTIPLIERS.weekday[hour] ?? 1.5
+    return fallback
+  }
+}
+
 const CONGESTION_NUMERIC: Record<string, number> = {
   low: 1,
   moderate: 2,

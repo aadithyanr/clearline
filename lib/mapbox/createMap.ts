@@ -13,6 +13,8 @@ export interface CreateMapOptions {
   addGlobalBuildings?: boolean;
   /** Mapbox style URL. Default: dark-v11. */
   style?: string;
+  /** When false, do not add the traffic layer. Default true. */
+  showTraffic?: boolean;
 }
 
 /**
@@ -71,6 +73,7 @@ export function createMapboxMap(options: CreateMapOptions): mapboxgl.Map {
     pitch = 45,
     bearing = -17.6,
     addGlobalBuildings = true,
+    showTraffic = true,
     style = 'mapbox://styles/mapbox/dark-v11',
   } = options;
 
@@ -98,6 +101,51 @@ export function createMapboxMap(options: CreateMapOptions): mapboxgl.Map {
       });
     }
     map.setTerrain({ source: 'mapbox-dem', exaggeration: 1.5 });
+
+    // ── Traffic layer ────────────────────────────────────────────
+    if (showTraffic) {
+      if (!map.getSource('mapbox-traffic')) {
+        map.addSource('mapbox-traffic', {
+          type: 'vector',
+          url: 'mapbox://mapbox.mapbox-traffic-v1',
+        });
+      }
+
+      const labelLayerId = getFirstSymbolLayerId(map);
+
+      map.addLayer(
+        {
+          id: 'traffic',
+          type: 'line',
+          source: 'mapbox-traffic',
+          'source-layer': 'traffic',
+          minzoom: 0,
+          maxzoom: 22,
+          paint: {
+            'line-width': [
+              'interpolate',
+              ['linear'],
+              ['zoom'],
+              10, 1.5,
+              14, 3,
+              18, 5,
+            ],
+            'line-color': [
+              'match',
+              ['get', 'congestion'],
+              'low', '#00c853',  // green
+              'moderate', '#FFD600',  // yellow
+              'heavy', '#FF6D00',  // orange
+              'severe', '#D50000',  // red
+              '#00c853'               // default
+            ],
+            'line-opacity': 0.85,
+          },
+        },
+        labelLayerId  // insert below map labels so text stays visible
+      );
+    }
+    // ────────────────────────────────────────────────────────────
 
     if (addGlobalBuildings) {
       const labelLayerId = getFirstSymbolLayerId(map);

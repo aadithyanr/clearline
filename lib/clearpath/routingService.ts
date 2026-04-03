@@ -1,7 +1,15 @@
 import { ScoredHospital, SymptomsPayload } from './types';
 import { getBatchDirections } from './mapboxDirections';
 import { getAdjustedDrivingTime, getAdjustedWaitTime, getTemporalContext } from './temporalPatterns';
+import { getLSTMCongestion } from './trafficPrediction'
 
+// Bounding boxes for Mumbai, Pune, Nagpur
+function detectCity(lat: number, lng: number): "mumbai" | "pune" | "nagpur" {
+  if (lat >= 18.85 && lat <= 19.35 && lng >= 72.75 && lng <= 73.05) return 'mumbai'
+  if (lat >= 18.40 && lat <= 18.65 && lng >= 73.70 && lng <= 74.00) return 'pune'
+  if (lat >= 21.05 && lat <= 21.25 && lng >= 79.00 && lng <= 79.20) return 'nagpur'
+  return 'pune' // default fallback
+}
 // Severity-based weight profiles
 const WEIGHTS: Record<string, { drive: number; wait: number; occ: number; spec: number }> = {
   critical: { drive: 5.0, wait: 0.5, occ: 0.3, spec: 3.0 },
@@ -64,7 +72,8 @@ export async function scoreAndRankHospitals(
   const directionsMap = await getBatchDirections(userLng, userLat, destinations);
 
   // Score each hospital
-  const scored: ScoredHospital[] = hospitals.map((h: any) => {
+  const scored: ScoredHospital[] = [];
+  for (const h of hospitals) {
     const hId = h._id?.toString() ?? h.id;
     const congestion = congestionMap[hId] ?? { occupancyPct: 70, waitMinutes: 90 };
     const directions = directionsMap.get(hId);
@@ -74,8 +83,13 @@ export async function scoreAndRankHospitals(
     const routeGeometry = directions?.routeGeometry ?? null;
     const congestionSegments = directions?.congestionSegments;
 
+    // Apply LSTM congestion multiplier
+    const city = detectCity(userLat, userLng)
+    const lstmCongestion = await getLSTMCongestion(city, "arterial")
+    const adjustedRawDriveTime = rawDriveTime * lstmCongestion
+
     // Apply temporal adjustments
-    const drivingTimeMinutes = getAdjustedDrivingTime(rawDriveTime, distanceKm, now);
+    const drivingTimeMinutes = getAdjustedDrivingTime(adjustedRawDriveTime, distanceKm, now);
     const adjustedWaitMinutes = getAdjustedWaitTime(congestion.waitMinutes, now);
 
     // Occupancy penalty: 0 if < 70%, scales up to 100
@@ -93,7 +107,7 @@ export async function scoreAndRankHospitals(
 
     const totalEstimatedMinutes = Math.round(drivingTimeMinutes + adjustedWaitMinutes);
 
-    return {
+    scored.push({
       hospital: h,
       score: Math.round(score * 10) / 10,
       drivingTimeMinutes: Math.round(drivingTimeMinutes),
@@ -106,9 +120,8 @@ export async function scoreAndRankHospitals(
       congestionSegments,
       totalEstimatedMinutes,
       reason: '',
-    };
-  });
-
+    });
+  }
   // Sort by score (ascending = best first)
   scored.sort((a, b) => a.score - b.score);
 

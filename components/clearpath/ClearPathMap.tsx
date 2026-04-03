@@ -169,6 +169,7 @@ export default function ClearPathMap({
       pitch: 45,
       bearing: -17.6,
       addGlobalBuildings: false,
+      showTraffic: false,   // global traffic tile disabled — route congestion is shown via congestionSegments
       style: mapStyleRef.current,
     });
 
