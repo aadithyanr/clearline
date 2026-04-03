@@ -143,6 +143,7 @@ export default function CivilianPanel({ cityId, onRecommendation, currentRecomme
         const json = await routeRes.json();
         if (json?.recommended && Array.isArray(json?.alternatives) && json?.userLocation) {
           const route = json as RouteResponse;
+          console.log('Received route response', route);
           setRouteResult(route);
           const rec = route.recommended;
           const h = rec?.hospital as { id?: string; _id?: string } | undefined;
