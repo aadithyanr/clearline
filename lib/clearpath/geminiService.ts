@@ -92,14 +92,6 @@ export function safeParseTriageJSON(text: string): TriageResponse {
   return {
     severity: severity as TriageResponse['severity'],
     reasoning: trimmedReasoning,
-    done: true,
-    symptoms: {
-      chestPain: Boolean(obj.symptoms && (obj.symptoms as any).chestPain),
-      shortnessOfBreath: Boolean(obj.symptoms && (obj.symptoms as any).shortnessOfBreath),
-      fever: Boolean(obj.symptoms && (obj.symptoms as any).fever),
-      dizziness: Boolean(obj.symptoms && (obj.symptoms as any).dizziness),
-      freeText: typeof (obj.symptoms as any)?.freeText === 'string' ? (obj.symptoms as any).freeText : '',
-    }
   };
 }
 

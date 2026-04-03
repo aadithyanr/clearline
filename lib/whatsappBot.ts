@@ -3,6 +3,7 @@ import WhatsAppWeb from 'whatsapp-web.js';
 import qrcode from 'qrcode-terminal';
 import * as fs from 'fs/promises';
 import { existsSync } from 'fs';
+import * as os from 'os';
 
 const { Client, LocalAuth, Message, MessageMedia } = WhatsAppWeb as any;
 
@@ -86,26 +87,38 @@ export class WhatsappBot {
     }
   }
 
-  // Simple state machine per user phone number
+  // State machine per user phone number
   sessions = new Map<string, { step: 'idle' | 'awaiting_location'; distressMessage?: string }>();
 
   async handleText(message: any) {
     const text = message.body.trim();
+    const lc = text.toLowerCase();
     const from = message.from;
 
     const session = this.sessions.get(from) || { step: 'idle' };
 
     // If they just say "cancel" or "stop", reset state
-    if (['cancel', 'stop', 'reset'].includes(text.toLowerCase())) {
+    if (['cancel', 'stop', 'reset'].includes(lc)) {
       this.sessions.delete(from);
       await message.reply('Triage cancelled. Send a new message if you need help.');
       return;
     }
+    
+    // Greeting
+    if (lc === 'hi' || lc === 'hello' || lc === 'hey') {
+      await message.reply(
+        '👋 Welcome to *Clearline Emergency Triage*.\n\n' +
+        'If you are in distress, please *describe your symptoms* in a single message (e.g. "My friend is having severe chest pain").\n\n' +
+        '_For immediate life-threatening danger, always call 112._'
+      );
+      return;
+    }
 
-    // Otherwise, treat any text as a distress message and ask for location
+    // Otherwise, treat as distress message and ask for location
     this.sessions.set(from, { step: 'awaiting_location', distressMessage: text });
     await message.reply(
-      'Got it. To find the nearest capable emergency room, please **Share your Live Location** or **Current Location** using the 📎 attachment button.'
+      'Got it. This sounds like an emergency.\n\n' + 
+      'To find the nearest capable emergency room, please tap the 📎 attachment button and *Share your Current Location* 📍'
     );
   }
 
@@ -115,18 +128,17 @@ export class WhatsappBot {
     const session = this.sessions.get(from);
 
     if (!loc) {
-      await message.reply('Location data was unreadable. Please try sending your location again.');
+      await message.reply('Location data was unreadable. Please try sending your location pin again.');
       return;
     }
 
     if (!session || session.step !== 'awaiting_location' || !session.distressMessage) {
-      // If we don't have a distress message but they sent a location, just hint them
-      await message.reply('We received your location, but we need to know what the emergency is. Please describe the symptoms.');
+      await message.reply('We received your location! However, we need to know your medical emergency. Please text us your symptoms first. 🚨');
       return;
     }
 
-    // We have both message + location! Let's hit the case creation API
-    await message.reply('Location received. Processing triage and finding the nearest hospital... 🚨');
+    // Hit the case API
+    await message.reply('Location received. AI Triage is running to find the best hospital... 🏃‍♂️🚑');
 
     try {
       const res = await fetch('http://localhost:3000/api/cases', {
@@ -136,32 +148,30 @@ export class WhatsappBot {
           message: session.distressMessage,
           userLat: loc.latitude,
           userLng: loc.longitude,
-          city: 'pune', // Default to Pune for demo, or do reverse geocoding
+          city: 'pune',
         }),
       });
 
-      if (!res.ok) {
-        throw new Error(`API Error: ${await res.text()}`);
-      }
-
+      if (!res.ok) throw new Error(`API Error: ${await res.text()}`);
       const caseData = await res.json();
-
-      // Clear session after successful route
+      
       this.sessions.delete(from);
-
-      const sevEmoji = caseData.severity === 'critical' ? '🚨' : caseData.severity === 'urgent' ? '⚠️' : 'ℹ️';
+      const sevDesc = caseData.severity.toUpperCase();
+      const emoji = caseData.severity === 'critical' ? '🚨' : caseData.severity === 'urgent' ? '⚠️' : '🏥';
 
       await message.reply(
-        `${sevEmoji} *${caseData.severity.toUpperCase()}* — Routing to ${caseData.hospital}\n\n` +
-        `⏱️ Drive: ~${caseData.drivingTimeMinutes} min\n\n` +
-        `📍 *View live route and ETA:* \n${caseData.caseUrl}\n\n` +
-        `Ambulance support notified. Stay on the line.`
+        `${emoji} *${sevDesc} CASE DETECTED*\n` +
+        `━━━━━━━━━━━━━━━\n` +
+        `🏥 *Hospital:* ${caseData.hospital}\n` +
+        `⏱️ *ETA:* ~${caseData.drivingTimeMinutes} min drive\n\n` +
+        `📍 *Open your Live Tracking Dashboard:*\n` +
+        `${caseData.caseUrl}\n\n` +
+        `_Ambulance dispatch notified. Please stay calm and keep this link open._`
       );
 
     } catch (err: any) {
       console.error('[WA] Routing failed', err);
-      // Don't delete session so they can try location again
-      await message.reply('Sorry, our routing engine is experiencing issues. Please try sending your location again, or call 112 immediately if critical.');
+      await message.reply('Sorry, our routing engine is currently experiencing issues. Please call 112 immediately.');
     }
   }
 

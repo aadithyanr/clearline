@@ -3,18 +3,32 @@
 
 import { NextRequest, NextResponse } from 'next/server';
 import { nanoid } from 'nanoid';
+import * as fs from 'fs';
+import * as path from 'path';
 import { mockHospitals } from '@/lib/clearpath/mockData';
 import { scoreAndRankHospitals } from '@/lib/clearpath/routingService';
 import type { EmergencyCase, TriageResult } from '@/lib/clearpath/caseTypes';
 
 export const maxDuration = 30;
 
-// In-memory store as fallback when MongoDB is down (works fine for demo)
-const globalStore = globalThis as unknown as { __casesStore: Map<string, EmergencyCase> };
-if (!globalStore.__casesStore) {
-  globalStore.__casesStore = new Map<string, EmergencyCase>();
+// File-based store as fallback when MongoDB is down to survive Next.js HMR reload
+const FALLBACK_FILE = path.join(process.cwd(), '.next', 'fallback_cases.json');
+
+function readFallbackDB(): Record<string, EmergencyCase> {
+  try {
+    if (fs.existsSync(FALLBACK_FILE)) {
+      return JSON.parse(fs.readFileSync(FALLBACK_FILE, 'utf-8'));
+    }
+  } catch (e) {}
+  return {};
 }
-const memStore = globalStore.__casesStore;
+
+function writeFallbackDB(data: Record<string, EmergencyCase>) {
+  try {
+    fs.mkdirSync(path.dirname(FALLBACK_FILE), { recursive: true });
+    fs.writeFileSync(FALLBACK_FILE, JSON.stringify(data, null, 2), 'utf-8');
+  } catch (e) {}
+}
 
 async function getCollection() {
   const { getDb } = await import('@/lib/clearpath/mongoClient');
@@ -88,13 +102,15 @@ export async function POST(req: NextRequest) {
       updatedAt: now,
     };
 
-    // Persist — try MongoDB, fall back to memory
-    try {
-      const col = await getCollection();
-      await col.insertOne(emergencyCase);
-    } catch {
-      memStore.set(caseId, emergencyCase);
-    }
+    // Always write to fast local file-store first for instant reads
+    const db = readFallbackDB();
+    db[caseId] = emergencyCase;
+    writeFallbackDB(db);
+
+    // Fire and forget MongoDB insertion so it doesn't block the request if the cluster hangs
+    getCollection()
+      .then(col => col.insertOne(emergencyCase))
+      .catch(err => console.error('[MongoDB Error - Non-fatal]', err));
 
     return NextResponse.json({
       caseId,
@@ -115,17 +131,24 @@ export async function GET(req: NextRequest) {
   const id = req.nextUrl.searchParams.get('id');
   if (!id) return NextResponse.json({ error: 'id required' }, { status: 400 });
 
-  // Check memory store first
-  if (memStore.has(id)) {
-    return NextResponse.json(memStore.get(id));
+  // ALWAYS resolve from file-store first if it exists to prevent Mongo hangs
+  const db = readFallbackDB();
+  if (db[id]) {
+    return NextResponse.json(db[id]);
   }
 
+  // Only if missing from local cache, try MongoDB with a strict timeout
   try {
     const col = await getCollection();
-    const doc = await col.findOne({ caseId: id });
+    // Using a simple Promise.race to enforce a 3s timeout on the MongoDB read
+    const doc = await Promise.race([
+      col.findOne({ caseId: id }),
+      new Promise((_, reject) => setTimeout(() => reject('timeout'), 3000))
+    ]);
+    
     if (!doc) return NextResponse.json({ error: 'Case not found' }, { status: 404 });
     return NextResponse.json(doc);
-  } catch {
+  } catch (err) {
     return NextResponse.json({ error: 'Case not found' }, { status: 404 });
   }
 }

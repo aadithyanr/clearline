@@ -34,7 +34,7 @@ export function BlueprintUploader() {
     ]);
 
     // Create building with footprint at the calculated position
-    addBuilding({ x: centerX, z: centerZ }, {
+    addBuilding({ x: centerX, y: 0, z: centerZ }, {
       footprint: relativeFootprint,
       blueprintImage: blueprintImage || undefined,
     });

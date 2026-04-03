@@ -1,2 +1,22 @@
-2026/04/03-22:17:28.367 ab166 Creating DB /Users/najrudin/VsCode/mitPune/clearline/.wwebjs_auth/session-clearline-whatsapp/Default/IndexedDB/https_web.whatsapp.com_0.indexeddb.leveldb since it was missing.
-2026/04/03-22:17:28.368 ab166 Reusing MANIFEST /Users/najrudin/VsCode/mitPune/clearline/.wwebjs_auth/session-clearline-whatsapp/Default/IndexedDB/https_web.whatsapp.com_0.indexeddb.leveldb/MANIFEST-000001
+2026/04/03-23:02:49.840 3e343e Reusing MANIFEST /Users/nair/Desktop/projects/ignisia/ERoute/clearline/.wwebjs_auth/session-clearline-whatsapp/Default/IndexedDB/https_web.whatsapp.com_0.indexeddb.leveldb/MANIFEST-000001
+2026/04/03-23:02:49.841 3e343e Recovering log #456
+2026/04/03-23:02:49.846 3e343e Reusing old log /Users/nair/Desktop/projects/ignisia/ERoute/clearline/.wwebjs_auth/session-clearline-whatsapp/Default/IndexedDB/https_web.whatsapp.com_0.indexeddb.leveldb/000456.log 
+2026/04/03-23:02:54.445 3e343e Level-0 table #466: started
+2026/04/03-23:02:54.457 3e343e Level-0 table #466: 1355752 bytes OK
+2026/04/03-23:02:54.462 3e343e Delete type=0 #456
+2026/04/03-23:02:58.725 3e3456 Compacting 1@1 + 6@2 files
+2026/04/03-23:02:58.755 3e3456 Generated table #467@1: 74016 keys, 2216568 bytes
+2026/04/03-23:02:58.778 3e3456 Generated table #468@1: 82338 keys, 2248787 bytes
+2026/04/03-23:02:58.800 3e3456 Generated table #469@1: 47896 keys, 2206519 bytes
+2026/04/03-23:02:58.825 3e3456 Generated table #470@1: 46357 keys, 2211815 bytes
+2026/04/03-23:02:58.836 3e3456 Generated table #471@1: 7454 keys, 2181210 bytes
+2026/04/03-23:02:58.855 3e3456 Generated table #472@1: 39130 keys, 2085082 bytes
+2026/04/03-23:02:58.855 3e3456 Compacted 1@1 + 6@2 files => 13149981 bytes
+2026/04/03-23:02:58.856 3e3456 compacted to: files[ 0 0 6 0 0 0 0 ]
+2026/04/03-23:02:58.856 3e3456 Delete type=2 #466
+2026/04/03-23:02:58.856 3e3456 Delete type=2 #459
+2026/04/03-23:02:58.856 3e3456 Delete type=2 #458
+2026/04/03-23:02:58.856 3e3456 Delete type=2 #460
+2026/04/03-23:02:58.856 3e3456 Delete type=2 #461
+2026/04/03-23:02:58.856 3e3456 Delete type=2 #463
+2026/04/03-23:02:58.856 3e3456 Delete type=2 #462

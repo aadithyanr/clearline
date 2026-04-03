@@ -13,32 +13,22 @@ const SEVERITY_CONFIG = {
   'non-urgent': { color: '#22c55e', bg: 'bg-green-500', label: 'NON-URGENT', text: 'text-green-400', border: 'border-green-500/30', glow: 'shadow-green-500/20' },
 };
 
-export default function CasePageContent() {
-  const params = useParams();
-  const caseId = params?.caseId as string;
-  
-  const [caseData, setCaseData] = useState<EmergencyCase | null>(null);
-  const [error, setError] = useState<string | null>(null);
+export default function CasePageContent({ caseId, initialData, initialError }: { caseId: string; initialData: EmergencyCase | null; initialError: string | null }) {
+  const [caseData] = useState<EmergencyCase | null>(initialData);
+  const [error] = useState<string | null>(initialError);
   const [elapsed, setElapsed] = useState(0);
   const timerRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
   useEffect(() => {
-    if (!caseId || caseId === 'undefined') return;
-
-    fetch(`/api/cases?id=${caseId}`)
-      .then(r => r.ok ? r.json() : Promise.reject('Case not found'))
-      .then(data => {
-        setCaseData(data);
-        // Start elapsed timer
-        const created = new Date(data.createdAt).getTime();
-        timerRef.current = setInterval(() => {
-          setElapsed(Math.floor((Date.now() - created) / 1000));
-        }, 1000);
-      })
-      .catch(() => setError('Case not found. It may have expired or the ID is incorrect.'));
-
+    if (caseData && caseData.createdAt) {
+      const created = new Date(caseData.createdAt).getTime();
+      setElapsed(Math.floor((Date.now() - created) / 1000));
+      timerRef.current = setInterval(() => {
+        setElapsed(Math.floor((Date.now() - created) / 1000));
+      }, 1000);
+    }
     return () => { if (timerRef.current) clearInterval(timerRef.current); };
-  }, [caseId]);
+  }, [caseData]);
 
   if (error) return (
     <div className="fixed inset-0 bg-slate-950 flex flex-col items-center justify-center gap-4 px-6 text-center">
@@ -57,7 +47,8 @@ export default function CasePageContent() {
     </div>
   );
 
-  const sev = SEVERITY_CONFIG[caseData.triage.severity];
+  const normalizedSev = caseData.triage?.severity?.toLowerCase() || 'urgent';
+  const sev = SEVERITY_CONFIG[normalizedSev as keyof typeof SEVERITY_CONFIG] || SEVERITY_CONFIG['urgent'];
   const hosp = caseData.assignedHospital?.hospital;
   const rec = caseData.assignedHospital;
   const eta = rec?.drivingTimeMinutes ?? 0;
@@ -126,9 +117,9 @@ export default function CasePageContent() {
             </div>
 
             {/* Predicted needs */}
-            {caseData.triage.predictedNeeds.length > 0 && (
+            {(caseData.triage.predictedNeeds?.length ?? 0) > 0 && (
               <div className="flex flex-wrap gap-1.5">
-                {caseData.triage.predictedNeeds.map(need => (
+                {caseData.triage.predictedNeeds.map((need: string) => (
                   <span key={need} className="text-[10px] font-bold uppercase tracking-wider px-2 py-0.5 rounded-full bg-white/8 border border-white/10 text-white/50">
                     {need}
                   </span>
