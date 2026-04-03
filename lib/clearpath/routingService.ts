@@ -1,0 +1,152 @@
+import { ScoredHospital, SymptomsPayload } from './types';
+import { getBatchDirections } from './mapboxDirections';
+import { getAdjustedDrivingTime, getAdjustedWaitTime, getTemporalContext } from './temporalPatterns';
+
+// Severity-based weight profiles
+const WEIGHTS: Record<string, { drive: number; wait: number; occ: number; spec: number }> = {
+  critical: { drive: 5.0, wait: 0.5, occ: 0.3, spec: 3.0 },
+  urgent: { drive: 2.0, wait: 3.0, occ: 1.5, spec: 1.5 },
+  'non-urgent': { drive: 1.0, wait: 4.0, occ: 2.0, spec: 0.5 },
+};
+
+// Map symptom keys to hospital specialties
+const SYMPTOM_SPECIALTY_MAP: Record<string, string[]> = {
+  chestPain: ['cardiac'],
+  shortnessOfBreath: ['cardiac', 'respiratory'],
+  injuryOrBleeding: ['trauma'],
+  dizziness: ['neurology', 'stroke'],
+  severeHeadache: ['neurology', 'stroke'],
+};
+
+function getSpecialtyScore(hospital: any, symptoms?: SymptomsPayload): { score: number; match: boolean } {
+  if (!symptoms) return { score: 0, match: false };
+
+  const needed: string[] = [];
+  for (const [key, specialties] of Object.entries(SYMPTOM_SPECIALTY_MAP)) {
+    if ((symptoms as any)[key]) needed.push(...specialties);
+  }
+  if (needed.length === 0) return { score: 0, match: false };
+
+  const has = hospital.specialties ?? [];
+  const matched = needed.filter((s: string) => has.includes(s)).length;
+  const match = matched > 0;
+  const score = needed.length > 0 ? (1 - matched / needed.length) * 50 : 0;
+  return { score, match };
+}
+
+export async function scoreAndRankHospitals(
+  userLat: number,
+  userLng: number,
+  severity: string,
+  hospitals: any[],
+  snapshots: any[],
+  symptoms?: SymptomsPayload
+): Promise<{ recommended: ScoredHospital; alternatives: ScoredHospital[] } | null> {
+  if (!hospitals.length) return null;
+
+  const now = new Date();
+  const weights = WEIGHTS[severity] ?? WEIGHTS['non-urgent'];
+  const context = getTemporalContext(now);
+
+  // Build congestion lookup
+  const congestionMap: Record<string, { occupancyPct: number; waitMinutes: number }> = {};
+  for (const s of snapshots) {
+    congestionMap[s.hospitalId] = { occupancyPct: s.occupancyPct, waitMinutes: s.waitMinutes };
+  }
+
+  // Get real driving times from Mapbox Directions API (parallel)
+  const destinations = hospitals.map((h: any) => ({
+    lng: h.longitude,
+    lat: h.latitude,
+    id: h._id?.toString() ?? h.id,
+  }));
+
+  const directionsMap = await getBatchDirections(userLng, userLat, destinations);
+
+  // Score each hospital
+  const scored: ScoredHospital[] = hospitals.map((h: any) => {
+    const hId = h._id?.toString() ?? h.id;
+    const congestion = congestionMap[hId] ?? { occupancyPct: 70, waitMinutes: 90 };
+    const directions = directionsMap.get(hId);
+
+    const rawDriveTime = directions?.drivingTimeMinutes ?? 15;
+    const distanceKm = directions?.distanceKm ?? 10;
+    const routeGeometry = directions?.routeGeometry ?? null;
+    const congestionSegments = directions?.congestionSegments;
+
+    // Apply temporal adjustments
+    const drivingTimeMinutes = getAdjustedDrivingTime(rawDriveTime, distanceKm, now);
+    const adjustedWaitMinutes = getAdjustedWaitTime(congestion.waitMinutes, now);
+
+    // Occupancy penalty: 0 if < 70%, scales up to 100
+    const occupancyPenalty = Math.max(0, ((congestion.occupancyPct - 70) / 30) * 100);
+
+    // Specialty match
+    const specialty = getSpecialtyScore(h, symptoms);
+
+    // Compute weighted score (lower = better)
+    const score =
+      weights.drive * drivingTimeMinutes +
+      weights.wait * adjustedWaitMinutes +
+      weights.occ * occupancyPenalty +
+      weights.spec * specialty.score;
+
+    const totalEstimatedMinutes = Math.round(drivingTimeMinutes + adjustedWaitMinutes);
+
+    return {
+      hospital: h,
+      score: Math.round(score * 10) / 10,
+      drivingTimeMinutes: Math.round(drivingTimeMinutes),
+      waitMinutes: congestion.waitMinutes,
+      adjustedWaitMinutes,
+      distanceKm: Math.round(distanceKm * 10) / 10,
+      occupancyPct: congestion.occupancyPct,
+      specialtyMatch: specialty.match,
+      routeGeometry,
+      congestionSegments,
+      totalEstimatedMinutes,
+      reason: '',
+    };
+  });
+
+  // Sort by score (ascending = best first)
+  scored.sort((a, b) => a.score - b.score);
+
+  // Generate reasons
+  scored[0].reason = generateReason(scored[0], severity, context);
+  for (let i = 1; i < scored.length; i++) {
+    scored[i].reason = generateAlternativeReason(scored[i], scored[0]);
+  }
+
+  return {
+    recommended: scored[0],
+    alternatives: scored.slice(1, 3),
+  };
+}
+
+function generateReason(h: ScoredHospital, severity: string, context: string): string {
+  const parts: string[] = [];
+
+  if (severity === 'critical') {
+    parts.push(`Fastest route: ${h.drivingTimeMinutes} min drive with ${context}.`);
+    if (h.specialtyMatch) parts.push('This hospital has matching specialty care.');
+  } else if (severity === 'urgent') {
+    parts.push(
+      `Best balance of ${h.drivingTimeMinutes} min drive + ~${h.adjustedWaitMinutes} min wait (${context}).`
+    );
+  } else {
+    parts.push(
+      `Lowest total wait: ~${h.totalEstimatedMinutes} min total (${h.drivingTimeMinutes} drive + ${h.adjustedWaitMinutes} wait). ${h.occupancyPct}% occupancy.`
+    );
+  }
+
+  return parts.join(' ');
+}
+
+function generateAlternativeReason(alt: ScoredHospital, best: ScoredHospital): string {
+  const timeDiff = alt.totalEstimatedMinutes - best.totalEstimatedMinutes;
+  if (timeDiff > 0) {
+    return `~${timeDiff} min longer total, but ${alt.occupancyPct}% occupancy.`;
+  }
+  return `${alt.distanceKm} km away, ${alt.occupancyPct}% occupancy.`;
+}
