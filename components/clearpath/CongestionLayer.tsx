@@ -116,7 +116,7 @@ export default function CongestionLayer({ map, hospitals, congestion, onHospital
     });
 
     // --- Click handler: send selected hospital to right-side panel ---
-    const handleLayerClick = (e: mapboxgl.MapMouseEvent & mapboxgl.EventData) => {
+    const handleLayerClick = (e: mapboxgl.MapLayerMouseEvent) => {
       if (!e.features || e.features.length === 0) return;
       const feat = e.features[0];
       const props = feat.properties!;
@@ -137,7 +137,7 @@ export default function CongestionLayer({ map, hospitals, congestion, onHospital
       });
     };
 
-    const handleMapClick = (e: mapboxgl.MapMouseEvent & mapboxgl.EventData) => {
+    const handleMapClick = (e: mapboxgl.MapMouseEvent) => {
       const hits = map.queryRenderedFeatures(e.point, { layers: [layerId] });
       if (!hits.length) onHospitalSelect?.(null);
     };

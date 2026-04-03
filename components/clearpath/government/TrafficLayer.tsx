@@ -25,19 +25,21 @@ export default function TrafficLayer({ map }: TrafficLayerProps) {
   useEffect(() => {
     if (!map) return;
 
+    const m = map;
+
     function addTrafficLayers() {
-      if (!map.getSource(SOURCE_ID)) {
-        map.addSource(SOURCE_ID, {
+      if (!m.getSource(SOURCE_ID)) {
+        m.addSource(SOURCE_ID, {
           type: 'vector',
           url: 'mapbox://mapbox.mapbox-traffic-v1',
         });
       }
 
       // Insert below base map symbols so hospital circles (and other layers) draw on top
-      const beforeId = getFirstSymbolLayerId(map);
+      const beforeId = getFirstSymbolLayerId(m);
 
-      if (!map.getLayer(CASING_LAYER_ID)) {
-        map.addLayer(
+      if (!m.getLayer(CASING_LAYER_ID)) {
+        m.addLayer(
           {
             id: CASING_LAYER_ID,
             type: 'line',
@@ -63,8 +65,8 @@ export default function TrafficLayer({ map }: TrafficLayerProps) {
         );
       }
 
-      if (!map.getLayer(FLOW_LAYER_ID)) {
-        map.addLayer(
+      if (!m.getLayer(FLOW_LAYER_ID)) {
+        m.addLayer(
           {
             id: FLOW_LAYER_ID,
             type: 'line',
@@ -91,17 +93,16 @@ export default function TrafficLayer({ map }: TrafficLayerProps) {
       }
     }
 
-    if (map.isStyleLoaded()) {
+    if (m.isStyleLoaded()) {
       addTrafficLayers();
     } else {
-      map.once('style.load', addTrafficLayers);
+      m.once('style.load', addTrafficLayers);
     }
 
     return () => {
-      if (!map) return;
       try {
-        if (map.getLayer(FLOW_LAYER_ID)) map.removeLayer(FLOW_LAYER_ID);
-        if (map.getLayer(CASING_LAYER_ID)) map.removeLayer(CASING_LAYER_ID);
+        if (m.getLayer(FLOW_LAYER_ID)) m.removeLayer(FLOW_LAYER_ID);
+        if (m.getLayer(CASING_LAYER_ID)) m.removeLayer(CASING_LAYER_ID);
         // Don't remove the source — other base-style layers may depend on it
       } catch {
         // Map may already be destroyed

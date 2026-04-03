@@ -193,7 +193,7 @@ export default function CivilianPanel({ cityId, onRecommendation, currentRecomme
   const currentStepIdx = stepIndex(step);
 
   return (
-    <div className="flex flex-col w-[380px] bg-white/85 backdrop-blur-2xl shadow-[0_8px_32px_rgba(0,0,0,0.08)] border border-white/50 rounded-3xl overflow-hidden pointer-events-auto h-[90vh] max-h-[800px]">
+    <div className="flex flex-col w-[380px] bg-white/50 backdrop-blur-2xl border border-white/75 shadow-[0_4px_28px_rgba(99,102,241,0.09),0_1px_4px_rgba(0,0,0,0.04)] rounded-[20px] overflow-hidden pointer-events-auto h-[90vh] max-h-[800px]">
       {/* Header */}
       <div className="shrink-0 px-6 pt-6 pb-4 border-b border-slate-100/50 bg-white/40">
         <div className="flex items-center gap-3 mb-2">

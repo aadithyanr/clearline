@@ -186,10 +186,10 @@ export default function MapPageContent() {
         <div className="flex items-center justify-start gap-3 w-full">
           <Link
             href="/"
-            className="cp-back-btn"
+            className="flex items-center gap-1.5 px-4 py-2 rounded-full text-sm font-semibold text-indigo-600 bg-white/70 border border-white/90 shadow-[0_2px_10px_rgba(99,102,241,0.12)] backdrop-blur-xl hover:bg-white/90 transition-all"
             aria-label="Back to home"
           >
-            <span className="cp-back-btn__icon" aria-hidden>
+            <span aria-hidden>
               <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
                 <path d="m15 18-6-6 6-6" />
               </svg>
@@ -225,7 +225,7 @@ export default function MapPageContent() {
               currentRecommendation={recommendedHospital}
             />
           ) : (
-            <div className="flex flex-col w-[380px] bg-white/85 backdrop-blur-2xl shadow-[0_8px_32px_rgba(0,0,0,0.08)] border border-white/50 rounded-3xl overflow-hidden pointer-events-auto items-center justify-center p-8 text-center min-h-[300px]">
+            <div className="flex flex-col w-[380px] bg-white/50 backdrop-blur-2xl border border-white/75 shadow-[0_4px_28px_rgba(99,102,241,0.09),0_1px_4px_rgba(0,0,0,0.04)] rounded-[20px] overflow-hidden pointer-events-auto items-center justify-center p-8 text-center min-h-[300px]">
               <div className="w-12 h-12 rounded-full bg-blue-100 text-blue-600 flex items-center justify-center mb-4 shadow-sm">
                 <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
                   <path d="M20 10c0 6-8 12-8 12s-8-6-8-12a8 8 0 0 1 16 0Z" />

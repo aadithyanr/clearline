@@ -10,7 +10,7 @@ interface CitySelectorProps {
 
 export default function CitySelector({ cities, currentCityId, onCityChange }: CitySelectorProps) {
   return (
-    <div className="cp-city-wrap">
+    <div className="cp-city-wrap bg-white/55 backdrop-blur-xl border border-white/80 rounded-[20px] shadow-[0_2px_14px_rgba(99,102,241,0.08)]">
       <div className="relative flex-1 min-w-0">
         <select
           value={currentCityId}
