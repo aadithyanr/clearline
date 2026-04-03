@@ -136,12 +136,31 @@ export async function scoreAndRankHospitals(
     // Specialty match
     const specialty = getSpecialtyScore(h, symptoms, predictedNeeds);
 
+    // Dynamic Equipment Constraint Layer
+    let equipmentPenalty = 0;
+    const hSeed = hId.charCodeAt(hId.length - 1); // deterministic logic for demo
+    // Predict what hardware the user needs
+    let needsVentilator = predictedNeeds?.includes('ventilator') || predictedNeeds?.includes('respiratory') || symptoms?.shortnessOfBreath;
+    let needsBurnUnit = predictedNeeds?.includes('burns');
+    
+    // Check if hospital has it (we use the deterministic seed since mongo doesn't have real hardware sensors)
+    const hasVentilators = h.specialties?.includes('respiratory') || h.totalBeds > 50 || (hSeed % 3 !== 0);
+    const hasBurnUnit = h.specialties?.includes('burns') || (hSeed % 5 === 0);
+
+    if (needsVentilator && !hasVentilators) {
+      equipmentPenalty += 500; // Hard constraint penalty
+    }
+    if (needsBurnUnit && !hasBurnUnit) {
+      equipmentPenalty += 1000; // Hard constraint penalty
+    }
+
     // Compute weighted score (lower = better)
     const score =
       weights.drive * drivingTimeMinutes +
       weights.wait * adjustedWaitMinutes +
       weights.occ * occupancyPenalty +
-      weights.spec * specialty.score;
+      weights.spec * specialty.score +
+      equipmentPenalty; // Enforce equipment constraints
 
     const totalEstimatedMinutes = Math.round(drivingTimeMinutes + adjustedWaitMinutes);
 

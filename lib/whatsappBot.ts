@@ -12,7 +12,8 @@ export class WhatsappBot {
   client: any;
 
   constructor() {
-    const authDir = './.wwebjs_auth/clearline-whatsapp';
+    // Keep auth files in the home directory so Turbopack never scans them
+    const authDir = `${os.homedir()}/.clearline-wwebjs/${process.env.WA_CLIENT_ID ?? 'clearline-whatsapp'}`;
     const hasSession = existsSync(authDir);
 
     if (hasSession) {
@@ -22,7 +23,10 @@ export class WhatsappBot {
     }
 
     this.client = new Client({
-      authStrategy: new LocalAuth({ clientId: 'clearline-whatsapp' }),
+      authStrategy: new LocalAuth({
+        clientId: process.env.WA_CLIENT_ID ?? 'clearline-whatsapp',
+        dataPath: `${os.homedir()}/.clearline-wwebjs`,
+      }),
       puppeteer: { headless: true },
     });
 

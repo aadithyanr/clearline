@@ -16,6 +16,7 @@ export type CaseStatus = 'triaging' | 'routing' | 'en_route' | 'arrived' | 'clos
 
 export interface EmergencyCase {
   caseId: string;
+  incidentId?: string;
   city: string;
   patientMessage: string;          // original message (stored but shown safely)
   triage: TriageResult;
