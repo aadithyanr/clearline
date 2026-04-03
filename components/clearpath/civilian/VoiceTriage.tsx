@@ -38,6 +38,8 @@ export default function VoiceTriage({ onTriageComplete }: VoiceTriageProps) {
   const silenceTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const animFrameRef = useRef<number | null>(null);
   const hasSpokenRef = useRef(false);
+  const isConverseInFlightRef = useRef(false);
+  const isSpeakInFlightRef = useRef(false);
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const chatContainerRef = useRef<HTMLDivElement>(null);
 
@@ -148,10 +150,23 @@ export default function VoiceTriage({ onTriageComplete }: VoiceTriageProps) {
   }, [stopSilenceDetection, transcribeAndSend]);
 
   const speakText = useCallback(async (text: string, onSpeechEnd?: () => void) => {
+    if (isSpeakInFlightRef.current) {
+      console.warn('Speech already playing; skipping duplicate speakText call');
+      return;
+    }
+
+    isSpeakInFlightRef.current = true;
+
     if (mediaRecorderRef.current && mediaRecorderRef.current.state === 'recording') {
       mediaRecorderRef.current.pause();
     }
     stopSilenceDetection();
+
+    const finishSpeech = () => {
+      isSpeakInFlightRef.current = false;
+      setIsSpeaking(false);
+      onSpeechEnd?.();
+    };
 
     try {
       setIsSpeaking(true);
@@ -163,7 +178,7 @@ export default function VoiceTriage({ onTriageComplete }: VoiceTriageProps) {
         body: JSON.stringify({ text }),
       });
 
-      if (!res.ok) throw new Error(`ElevenLabs failed`);
+      if (!res.ok) throw new Error('ElevenLabs failed');
 
       const arrayBuffer = await res.arrayBuffer();
       const audioCtx = new AudioContext();
@@ -171,23 +186,27 @@ export default function VoiceTriage({ onTriageComplete }: VoiceTriageProps) {
       const source = audioCtx.createBufferSource();
       source.buffer = audioBuffer;
       source.connect(audioCtx.destination);
-      source.onended = () => {
-        setIsSpeaking(false);
-        onSpeechEnd?.();
-      };
+      source.onended = finishSpeech;
       source.start();
     } catch (err) {
       console.warn('TTS failed, using fallback:', err);
       setIsSpeaking(true);
       window.speechSynthesis.cancel();
       const utterance = new SpeechSynthesisUtterance(text);
-      utterance.onend = () => { setIsSpeaking(false); onSpeechEnd?.(); };
-      utterance.onerror = () => { setIsSpeaking(false); onSpeechEnd?.(); };
+      utterance.onend = finishSpeech;
+      utterance.onerror = finishSpeech;
       window.speechSynthesis.speak(utterance);
     }
   }, [stopSilenceDetection]);
 
   const sendMessage = useCallback(async (userText: string, currentMessages: Message[]) => {
+    if (isConverseInFlightRef.current) {
+      setError('Please wait until the current response completes.');
+      return currentMessages;
+    }
+
+    isConverseInFlightRef.current = true;
+
     const newMessages: Message[] = [...currentMessages, { role: 'user', content: userText }];
     setMessages(newMessages);
     setIsThinking(true);
@@ -210,16 +229,19 @@ export default function VoiceTriage({ onTriageComplete }: VoiceTriageProps) {
 
       if (data.reply) {
         if (data.triage) {
-          speakText(data.reply, () => setTimeout(() => onTriageComplete(data.triage), 500));
+          await speakText(data.reply, () => setTimeout(() => onTriageComplete(data.triage), 500));
         } else {
-          speakText(data.reply, () => startListeningRef.current());
+          await speakText(data.reply, () => startListeningRef.current());
         }
       }
       return updatedMessages;
     } catch (err) {
+      console.error('sendMessage error', err);
       setIsThinking(false);
       setError('Connection dropped. Try again.');
       return newMessages;
+    } finally {
+      isConverseInFlightRef.current = false;
     }
   }, [speakText, onTriageComplete]);
 

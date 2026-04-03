@@ -1,35 +1,60 @@
 import { NextRequest, NextResponse } from 'next/server';
-import OpenAI from 'openai';
 
 export const maxDuration = 30;
 
-const SYSTEM_PROMPT = `You are ERoute's emergency intake AI. You triage patients fast so we can route them to the right ER.
+const SYSTEM_PROMPT = `You are Clearline emergency triage assistant for Pune. Your purpose is to assess user symptoms and provide a safe triage classification.
 
-Rules:
-1. Ask ONE short question at a time. Max 1-2 sentences per response.
-2. NO filler. No "I'm sorry to hear that", no "That sounds concerning", no "I understand". Jump straight to the next question or action.
-3. If something sounds dangerous, give ONE immediate instruction: "Apply pressure to the wound." / "Sit upright." / "Don't move." / "Call 911 now." Then immediately triage.
-4. Gather: what happened, pain level (1-10), breathing okay?
-5. You MUST complete triage within 2-3 user messages. After the user's 2nd reply you MUST triage on your next response. Do NOT ask more than 3 questions total.
-6. Your FINAL message before triage must say exactly: "Got it. We're routing you to the nearest ER now."
+Guidelines:
+- Ask focused questions, 1-2 sentences each. Keep conversational tone professional and concise.
+- Identify red flags rapidly: chest pain, respiratory distress, altered consciousness, bleeding, stroke signs.
+- Once enough info is collected (or after 3 user messages), finalize with: "Got it. We're routing you to the nearest ER now." and add one final line.
+- Do NOT include markdown code fences.
 
-CRITICAL RULES:
-- NEVER output JSON, code blocks, or structured data in your spoken text.
-- When you have enough info (or after 2-3 exchanges — whichever comes first), you MUST add a line at the very end starting with "TRIAGE_RESULT:" followed by triage JSON:
-TRIAGE_RESULT:{"severity": "critical|urgent|non-urgent", "reasoning": "brief explanation", "done": true, "symptoms": {"chestPain": false, "shortnessOfBreath": false, "fever": false, "dizziness": false, "freeText": "summary"}}
-- The TRIAGE_RESULT line is stripped before display — the patient never sees it.
-- If you are unsure, err toward "urgent". NEVER keep chatting to gather more info past 3 exchanges.
+TRIAGE_RESULT line (machine-readable, patient-hidden):
+TRIAGE_RESULT:{"severity":"critical|urgent|non-urgent","reasoning":"brief conclusion","done":true,"symptoms":{"chestPain":true|false,"shortnessOfBreath":true|false,"fever":true|false,"dizziness":true|false,"freeText":"short phrase"}}
 
-Severity:
-- critical: Life-threatening (severe chest pain, stroke, major trauma, can't breathe, uncontrolled bleeding)
-- urgent: Needs prompt care (moderate-severe pain, high fever, worsening, possible fracture)
-- non-urgent: Can wait (mild stable pain, minor injury, cold/flu)
-
-Be direct. Every word counts. TRIAGE FAST.`;
+- JSON must be valid. No extra text after the line. If uncertain, choose severity:"urgent".`;
 
 interface Message {
   role: 'system' | 'user' | 'assistant';
   content: string;
+}
+
+async function generateGeminiText(apiKey: string, modelId: string, messages: Message[]) {
+  const contents = messages.map(msg => ({
+    role: msg.role === 'assistant' ? 'model' : 'user',
+    parts: [{ text: msg.content }],
+  }));
+
+  const geminiUrl = `https://generativelanguage.googleapis.com/v1beta/models/${modelId}:generateContent?key=${apiKey}`;
+
+  const response = await fetch(geminiUrl, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify({
+      contents,
+      generationConfig: {
+        temperature: 0.4,
+        maxOutputTokens: 300,
+      },
+    }),
+  });
+
+  if (!response.ok) {
+    const errorText = await response.text();
+    throw new Error(`Gemini API error ${response.status}: ${errorText}`);
+  }
+
+  const data = await response.json();
+  const candidate = data?.candidates?.[0]?.content?.parts?.[0]?.text;
+
+  if (!candidate || typeof candidate !== 'string') {
+    throw new Error('Gemini API returned empty response');
+  }
+
+  return candidate;
 }
 
 export async function POST(req: NextRequest) {
@@ -41,13 +66,12 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: 'messages array is required' }, { status: 400 });
     }
 
-    const apiKey = process.env.OPENAI_API_KEY;
+    const apiKey = process.env.GEMINI_API_KEY;
     if (!apiKey) {
-      return NextResponse.json({ error: 'OPENAI_API_KEY not configured' }, { status: 500 });
+      return NextResponse.json({ error: 'GEMINI_API_KEY not configured' }, { status: 500 });
     }
 
-    const openai = new OpenAI({ apiKey });
-    const modelId = process.env.OPENAI_MODEL ?? 'gpt-4o-mini';
+    const modelId = process.env.GEMINI_MODEL ?? 'gemini-2.0-flash';
 
     const userMessageCount = messages.filter(m => m.role === 'user').length;
 
@@ -80,14 +104,7 @@ export async function POST(req: NextRequest) {
       });
     }
 
-    const result = await openai.chat.completions.create({
-      model: modelId,
-      temperature: 0.4,
-      max_tokens: 300,
-      messages: fullMessages,
-    });
-
-    const text = result.choices[0]?.message?.content ?? '';
+    const text = await generateGeminiText(apiKey, modelId, fullMessages);
 
     // Extract triage JSON from the response — greedy match to handle nested braces
     let triage = null;
