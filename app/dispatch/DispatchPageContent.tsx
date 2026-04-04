@@ -6,6 +6,7 @@ import ClearPathMap from '@/components/clearpath/ClearPathMap';
 import DispatchSidebar from '@/components/clearpath/dispatch/DispatchSidebar';
 import HospitalLoadPanel from '@/components/clearpath/dispatch/HospitalLoadPanel';
 import type { EmergencyCase } from '@/lib/clearpath/caseTypes';
+import type { RoutingConstraints, ScoredHospital } from '@/lib/clearpath/types';
 import { CITIES } from '@/lib/map-3d/cities';
 
 const fetcher = (url: string) => fetch(url).then(res => res.json());
@@ -15,10 +16,16 @@ export default function DispatchPageContent() {
   const cityConfig = CITIES.find(c => c.id === cityId) || CITIES[0];
 
   const [selectedCase, setSelectedCase] = useState<EmergencyCase | null>(null);
+  const [constraints, setConstraints] = useState<RoutingConstraints>({
+    maxOccupancyPct: 95,
+    massCasualtyMode: false,
+  });
+  const [routeOptions, setRouteOptions] = useState<{ recommended: ScoredHospital; alternatives: ScoredHospital[] } | null>(null);
+  const [routeOptionsLoading, setRouteOptionsLoading] = useState(false);
 
   // Poll for active cases
   const { data: casesData, mutate } = useSWR('/api/dispatch/cases', fetcher, {
-    refreshInterval: 3000,
+    refreshInterval: 10000,
     revalidateOnFocus: true,
   });
 
@@ -45,6 +52,70 @@ export default function DispatchPageContent() {
     }
   }, [cases, selectedCase]);
 
+  // SSE stream for near-real-time case updates. SWR polling remains as fallback.
+  useEffect(() => {
+    const eventSource = new EventSource('/api/dispatch/cases/stream');
+
+    const onCases = (event: MessageEvent) => {
+      try {
+        const payload = JSON.parse(event.data);
+        if (Array.isArray(payload?.cases)) {
+          mutate({ cases: payload.cases }, false);
+        }
+      } catch {
+        // ignore malformed events and continue polling fallback
+      }
+    };
+
+    eventSource.addEventListener('cases', onCases as EventListener);
+    eventSource.onerror = () => {
+      eventSource.close();
+    };
+
+    return () => {
+      eventSource.removeEventListener('cases', onCases as EventListener);
+      eventSource.close();
+    };
+  }, [mutate]);
+
+  useEffect(() => {
+    const selectedCaseId = selectedCase?.caseId;
+    if (!selectedCaseId) {
+      setRouteOptions(null);
+      return;
+    }
+
+    let cancelled = false;
+
+    async function loadRouteOptions() {
+      setRouteOptionsLoading(true);
+      try {
+        const res = await fetch(`/api/dispatch/cases/${selectedCaseId}/options`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ constraints }),
+        });
+        if (!res.ok) return;
+        const data = await res.json();
+        if (!cancelled) {
+          setRouteOptions({
+            recommended: data.recommended,
+            alternatives: data.alternatives ?? [],
+          });
+        }
+      } catch {
+        if (!cancelled) setRouteOptions(null);
+      } finally {
+        if (!cancelled) setRouteOptionsLoading(false);
+      }
+    }
+
+    loadRouteOptions();
+    return () => {
+      cancelled = true;
+    };
+  }, [selectedCase?.caseId, constraints]);
+
   async function handleOverride(caseId: string, newHospital: any) {
     try {
       const res = await fetch(`/api/dispatch/cases/${caseId}/override`, {
@@ -59,6 +130,44 @@ export default function DispatchPageContent() {
       }
     } catch (err) {
       console.error('Failed to override', err);
+    }
+  }
+
+  async function handleHospitalAck(caseId: string, hospitalId: string) {
+    try {
+      const res = await fetch(`/api/hospital/${hospitalId}/ack`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          caseId,
+          actorId: 'dispatch-ui',
+          reason: 'Hospital acknowledged intake from dispatch panel',
+        }),
+      });
+      if (res.ok) {
+        await mutate();
+      }
+    } catch (err) {
+      console.error('Failed to acknowledge hospital assignment', err);
+    }
+  }
+
+  async function handleHospitalReject(caseId: string, hospitalId: string) {
+    try {
+      const res = await fetch(`/api/hospital/${hospitalId}/reject`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          caseId,
+          actorId: 'dispatch-ui',
+          reason: 'Hospital rejected intake from dispatch panel',
+        }),
+      });
+      if (res.ok) {
+        await mutate();
+      }
+    } catch (err) {
+      console.error('Failed to reject hospital assignment', err);
     }
   }
 
@@ -106,9 +215,15 @@ export default function DispatchPageContent() {
             cases={cases}
             hospitals={hospitals}
             congestion={congestion}
+            constraints={constraints}
+            onConstraintsChange={setConstraints}
+            routeOptions={routeOptions}
+            routeOptionsLoading={routeOptionsLoading}
             selectedCaseId={selectedCase?.caseId}
             onCaseSelect={setSelectedCase}
             onOverrideSubmit={handleOverride}
+            onHospitalAck={handleHospitalAck}
+            onHospitalReject={handleHospitalReject}
           />
         </div>
 

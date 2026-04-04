@@ -28,6 +28,7 @@ export async function POST(req: NextRequest) {
     }
 
     const city = incidentPayloads[0].city || 'pune';
+    const massCasualtyMode = body.massCasualtyMode !== false;
     const incidentId = `MCI-${nanoid(6).toUpperCase()}`;
     const hospitals = await getHospitalsForCity(city);
     
@@ -54,6 +55,8 @@ export async function POST(req: NextRequest) {
         runningSnapshots,
         null, // explicitly pass null for symptoms to use array format
         triage.predictedNeeds,
+        undefined,
+        { massCasualtyMode },
       );
 
       if (!routeResult) {
@@ -86,10 +89,13 @@ export async function POST(req: NextRequest) {
         userLocation: { lat: payload.userLat, lng: payload.userLng },
         assignedHospital: routeResult.recommended,
         alternatives: routeResult.alternatives,
-        status: 'triaging',
+        status: 'en_route',
         createdAt: now,
         updatedAt: now,
-        timeline: [{ ts: now, event: 'Case created via Mass Casualty sequence' }]
+        timeline: [
+          { ts: now, event: 'Case created via Mass Casualty sequence' },
+          { ts: now, event: `Routed to ${routeResult.recommended.hospital.name}` },
+        ]
       };
 
       await saveCase(caseDoc);

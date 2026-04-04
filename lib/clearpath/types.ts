@@ -6,6 +6,7 @@ export interface Hospital {
   longitude: number;
   totalBeds: number;
   erBeds: number;
+  isLevel1TraumaCenter?: boolean;
   phone?: string;
   website?: string;
   specialties?: string[];
@@ -73,7 +74,28 @@ export interface RouteRequest {
   severity: 'critical' | 'urgent' | 'non-urgent';
   city: string;
   symptoms?: SymptomsPayload;
+  predictedNeeds?: string[];
   imageSeverity?: 'high' | 'low';
+  constraints?: RoutingConstraints;
+}
+
+export interface RoutingConstraints {
+  requireVentilator?: boolean;
+  requireIcu?: boolean;
+  requireCardiacSpecialist?: boolean;
+  requireNeurosurgeon?: boolean;
+  maxOccupancyPct?: number;
+  massCasualtyMode?: boolean;
+}
+
+export interface ScoreBreakdown {
+  driveComponent: number;
+  waitComponent: number;
+  occupancyComponent: number;
+  specialtyComponent: number;
+  equipmentComponent: number;
+  massCasualtyComponent: number;
+  total: number;
 }
 
 export interface ScoredHospital {
@@ -89,6 +111,8 @@ export interface ScoredHospital {
   congestionSegments?: string[];
   totalEstimatedMinutes: number;
   reason: string;
+  sceneSeverityOverride?: boolean;
+  scoreBreakdown?: ScoreBreakdown;
 }
 
 export interface RouteResponse {

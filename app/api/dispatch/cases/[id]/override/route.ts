@@ -8,7 +8,7 @@ export async function POST(req: NextRequest, { params }: { params: any }) {
     if (!id) return NextResponse.json({ error: 'id required' }, { status: 400 });
 
     const body = await req.json();
-    const { newHospital } = body;
+    const { newHospital, operatorId, reason } = body;
 
     if (!newHospital) {
       return NextResponse.json({ error: 'newHospital is required' }, { status: 400 });
@@ -20,7 +20,7 @@ export async function POST(req: NextRequest, { params }: { params: any }) {
       return NextResponse.json({ error: 'Case not found' }, { status: 404 });
     }
 
-    const success = await overrideAssignedHospital(id, newHospital);
+    const success = await overrideAssignedHospital(id, newHospital, operatorId, reason);
     if (!success) {
       return NextResponse.json({ error: 'Failed to update case' }, { status: 500 });
     }

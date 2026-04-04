@@ -10,9 +10,38 @@ export interface TriageResult {
 export interface CaseTimeline {
   ts: string;
   event: string;
+  eventType?:
+    | 'case_created'
+    | 'status_transition'
+    | 'dispatch_override'
+    | 'hospital_acknowledged'
+    | 'hospital_rejected'
+    | 'fallback_assigned';
+  actorId?: string;
+  reason?: string;
+  previousHospitalId?: string;
+  previousHospitalName?: string;
+  nextHospitalId?: string;
+  nextHospitalName?: string;
+  fromStatus?: CaseStatus;
+  toStatus?: CaseStatus;
 }
 
-export type CaseStatus = 'triaging' | 'routing' | 'en_route' | 'arrived' | 'closed';
+export type CaseStatus =
+  | 'triaging'
+  | 'routing'
+  | 'awaiting_hospital_ack'
+  | 'en_route'
+  | 'arrived'
+  | 'closed';
+
+export interface HospitalAckState {
+  status: 'pending' | 'acknowledged' | 'rejected';
+  hospitalId?: string;
+  actorId?: string;
+  reason?: string;
+  updatedAt: string;
+}
 
 export interface EmergencyCase {
   caseId: string;
@@ -24,6 +53,7 @@ export interface EmergencyCase {
   assignedHospital: any;           // ScoredHospital from routing engine
   alternatives: any[];
   status: CaseStatus;
+  hospitalAck?: HospitalAckState;
   timeline: CaseTimeline[];
   createdAt: string;
   updatedAt: string;

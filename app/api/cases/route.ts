@@ -57,6 +57,7 @@ export async function POST(req: NextRequest) {
       null,
       triage.predictedNeeds,
       imageSeverity,
+      undefined,
     );
 
     if (!routeResult) {
@@ -75,10 +76,29 @@ export async function POST(req: NextRequest) {
       userLocation: { lat: userLat, lng: userLng },
       assignedHospital: routeResult.recommended,
       alternatives: routeResult.alternatives,
-      status: 'en_route',
+      status: 'awaiting_hospital_ack',
+      hospitalAck: {
+        status: 'pending',
+        hospitalId: routeResult.recommended?.hospital?.id,
+        updatedAt: now,
+      },
       timeline: [
-        { ts: now, event: 'Case created — patient triaged via message' },
-        { ts: now, event: `Routed to ${routeResult.recommended.hospital.name}` },
+        { ts: now, event: 'Case created - patient triaged via message', eventType: 'case_created' },
+        ...(imageSeverity === 'high'
+          ? [{
+              ts: now,
+              event: 'Scene-severity override active - prioritizing Level-1 trauma pathway',
+              eventType: 'status_transition' as const,
+              reason: 'High severity detected from uploaded scene image',
+            }]
+          : []),
+        {
+          ts: now,
+          event: `Routed to ${routeResult.recommended.hospital.name} - awaiting hospital acknowledgement`,
+          eventType: 'status_transition',
+          fromStatus: 'routing',
+          toStatus: 'awaiting_hospital_ack',
+        },
       ],
       createdAt: now,
       updatedAt: now,

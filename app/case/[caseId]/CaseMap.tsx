@@ -19,7 +19,8 @@ export default function CaseMap({ caseData }: { caseData: EmergencyCase }) {
 
     const map = new mapboxgl.Map({
       container: containerRef.current,
-      style: 'mapbox://styles/mapbox/navigation-night-v1',
+      // navigation-night-v1 requests the legacy incidents tileset that returns 404 for some tokens.
+      style: 'mapbox://styles/mapbox/dark-v11',
       center: [uLng, uLat],
       zoom: 12,
       pitch: 40,

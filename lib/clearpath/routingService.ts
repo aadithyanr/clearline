@@ -1,4 +1,4 @@
-import { ScoredHospital, SymptomsPayload } from './types';
+import { RoutingConstraints, ScoredHospital, SymptomsPayload } from './types';
 import { getBatchDirections } from './mapboxDirections';
 import { getAdjustedDrivingTime, getAdjustedWaitTime, getTemporalContext } from './temporalPatterns';
 
@@ -64,6 +64,69 @@ function getSpecialtyScore(
   return { score, match };
 }
 
+function normalizeHospitalId(hospital: any): string {
+  return hospital._id?.toString() ?? hospital.id;
+}
+
+function getHospitalCapabilities(hospital: any) {
+  const specialties: string[] = hospital.specialties ?? [];
+  const equipment = hospital.equipment ?? {};
+  const specialists = hospital.specialists ?? {};
+  const totalBeds = hospital.totalBeds ?? 0;
+
+  const hasVentilator =
+    equipment.ventilator === true ||
+    equipment.ventilatorAvailable === true ||
+    specialties.includes('respiratory') ||
+    totalBeds >= 80;
+
+  const hasIcu =
+    (typeof hospital.icuBeds === 'number' && hospital.icuBeds > 0) ||
+    equipment.icu === true ||
+    specialties.includes('cardiac') ||
+    totalBeds >= 100;
+
+  const hasCardiacSpecialist =
+    specialists.cardiacSurgeonOnDuty === true || specialties.includes('cardiac');
+
+  const hasNeurosurgeon =
+    specialists.neurosurgeonOnDuty === true ||
+    specialties.includes('neurology') ||
+    specialties.includes('stroke');
+
+  return {
+    hasVentilator,
+    hasIcu,
+    hasCardiacSpecialist,
+    hasNeurosurgeon,
+  };
+}
+
+function satisfiesConstraints(
+  hospital: any,
+  occupancyPct: number,
+  constraints?: RoutingConstraints,
+): boolean {
+  if (!constraints) return true;
+
+  const caps = getHospitalCapabilities(hospital);
+
+  if (constraints.requireVentilator && !caps.hasVentilator) return false;
+  if (constraints.requireIcu && !caps.hasIcu) return false;
+  if (constraints.requireCardiacSpecialist && !caps.hasCardiacSpecialist) return false;
+  if (constraints.requireNeurosurgeon && !caps.hasNeurosurgeon) return false;
+  if (typeof constraints.maxOccupancyPct === 'number' && occupancyPct > constraints.maxOccupancyPct) {
+    return false;
+  }
+
+  return true;
+}
+
+function isLevel1TraumaCenter(hospital: any): boolean {
+  if (hospital?.isLevel1TraumaCenter === true) return true;
+  return hospital?.specialties?.includes('trauma') === true;
+}
+
 export async function scoreAndRankHospitals(
   userLat: number,
   userLng: number,
@@ -73,17 +136,20 @@ export async function scoreAndRankHospitals(
   symptoms?: SymptomsPayload | null,
   predictedNeeds?: string[],
   imageSeverity?: 'high' | 'low',
+  constraints?: RoutingConstraints,
 ): Promise<{ recommended: ScoredHospital; alternatives: ScoredHospital[] } | null> {
   if (!hospitals.length) return null;
 
   // If image indicates high severity, force critical and filter to trauma centers
   let effectiveSeverity = severity;
   let filteredHospitals = hospitals;
+  let sceneSeverityOverrideActive = false;
   if (imageSeverity === 'high') {
     effectiveSeverity = 'critical';
-    filteredHospitals = hospitals.filter(h => h.specialties?.includes('trauma'));
+    sceneSeverityOverrideActive = true;
+    filteredHospitals = hospitals.filter((h) => isLevel1TraumaCenter(h));
     if (filteredHospitals.length === 0) {
-      // Fallback to all if no trauma centers
+      // Fallback to all if no eligible Level-1 centers are available in current dataset.
       filteredHospitals = hospitals;
     }
   }
@@ -117,8 +183,13 @@ export async function scoreAndRankHospitals(
 
   // Score each hospital
   const scored: ScoredHospital[] = pool.map((h: any) => {
-    const hId = h._id?.toString() ?? h.id;
+    const hId = normalizeHospitalId(h);
     const congestion = congestionMap[hId] ?? { occupancyPct: 70, waitMinutes: 90 };
+
+    if (!satisfiesConstraints(h, congestion.occupancyPct, constraints)) {
+      return null as any;
+    }
+
     const directions = directionsMap.get(hId);
 
     const rawDriveTime = directions?.drivingTimeMinutes ?? 15;
@@ -138,13 +209,14 @@ export async function scoreAndRankHospitals(
 
     // Dynamic Equipment Constraint Layer
     let equipmentPenalty = 0;
-    const hSeed = hId.charCodeAt(hId.length - 1); // deterministic logic for demo
+    const hSeed = hId.charCodeAt(Math.max(0, hId.length - 1)); // deterministic logic for demo
+    const caps = getHospitalCapabilities(h);
     // Predict what hardware the user needs
     let needsVentilator = predictedNeeds?.includes('ventilator') || predictedNeeds?.includes('respiratory') || symptoms?.shortnessOfBreath;
     let needsBurnUnit = predictedNeeds?.includes('burns');
-    
-    // Check if hospital has it (we use the deterministic seed since mongo doesn't have real hardware sensors)
-    const hasVentilators = h.specialties?.includes('respiratory') || h.totalBeds > 50 || (hSeed % 3 !== 0);
+
+    // Check if hospital has it (prefer explicit/specialty capability and use deterministic fallback for demos)
+    const hasVentilators = caps.hasVentilator || (hSeed % 3 !== 0);
     const hasBurnUnit = h.specialties?.includes('burns') || (hSeed % 5 === 0);
 
     if (needsVentilator && !hasVentilators) {
@@ -154,13 +226,27 @@ export async function scoreAndRankHospitals(
       equipmentPenalty += 1000; // Hard constraint penalty
     }
 
+    // Mass-casualty mode discourages assigning additional critical load to already saturated hospitals.
+    let massCasualtyPenalty = 0;
+    if (constraints?.massCasualtyMode) {
+      const erBeds = h.erBeds ?? 1;
+      const saturation = Math.max(0, congestion.occupancyPct - 75);
+      massCasualtyPenalty = saturation * 1.8 + (erBeds < 6 ? 40 : 0);
+    }
+
+    const driveComponent = weights.drive * drivingTimeMinutes;
+    const waitComponent = weights.wait * adjustedWaitMinutes;
+    const occupancyComponent = weights.occ * occupancyPenalty;
+    const specialtyComponent = weights.spec * specialty.score;
+
     // Compute weighted score (lower = better)
     const score =
-      weights.drive * drivingTimeMinutes +
-      weights.wait * adjustedWaitMinutes +
-      weights.occ * occupancyPenalty +
-      weights.spec * specialty.score +
-      equipmentPenalty; // Enforce equipment constraints
+      driveComponent +
+      waitComponent +
+      occupancyComponent +
+      specialtyComponent +
+      equipmentPenalty +
+      massCasualtyPenalty;
 
     const totalEstimatedMinutes = Math.round(drivingTimeMinutes + adjustedWaitMinutes);
 
@@ -177,8 +263,33 @@ export async function scoreAndRankHospitals(
       congestionSegments,
       totalEstimatedMinutes,
       reason: '',
+      sceneSeverityOverride: sceneSeverityOverrideActive,
+      scoreBreakdown: {
+        driveComponent: Math.round(driveComponent * 10) / 10,
+        waitComponent: Math.round(waitComponent * 10) / 10,
+        occupancyComponent: Math.round(occupancyComponent * 10) / 10,
+        specialtyComponent: Math.round(specialtyComponent * 10) / 10,
+        equipmentComponent: Math.round(equipmentPenalty * 10) / 10,
+        massCasualtyComponent: Math.round(massCasualtyPenalty * 10) / 10,
+        total: Math.round(score * 10) / 10,
+      },
     };
-  });
+  }).filter(Boolean);
+
+  if (!scored.length) {
+    // If strict constraints removed all hospitals, relax constraints as a safety fallback.
+    return scoreAndRankHospitals(
+      userLat,
+      userLng,
+      severity,
+      hospitals,
+      snapshots,
+      symptoms,
+      predictedNeeds,
+      imageSeverity,
+      undefined,
+    );
+  }
 
   // Sort by score (ascending = best first)
   scored.sort((a, b) => a.score - b.score);
@@ -197,6 +308,10 @@ export async function scoreAndRankHospitals(
 
 function generateReason(h: ScoredHospital, severity: string, context: string): string {
   const parts: string[] = [];
+
+  if (h.sceneSeverityOverride) {
+    parts.push('Scene-severity override active: Level-1 trauma policy applied.');
+  }
 
   if (severity === 'critical') {
     parts.push(`Fastest route: ${h.drivingTimeMinutes} min drive with ${context}.`);

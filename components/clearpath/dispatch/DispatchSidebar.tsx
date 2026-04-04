@@ -2,18 +2,37 @@
 
 import { useState } from 'react';
 import type { EmergencyCase } from '@/lib/clearpath/caseTypes';
-import type { ScoredHospital } from '@/lib/clearpath/types';
+import type { RoutingConstraints, ScoredHospital } from '@/lib/clearpath/types';
 
 interface DispatchSidebarProps {
   cases: EmergencyCase[];
   hospitals: any[];
   congestion: any[];
+  constraints: RoutingConstraints;
+  onConstraintsChange: (next: RoutingConstraints) => void;
+  routeOptions: { recommended: ScoredHospital; alternatives: ScoredHospital[] } | null;
+  routeOptionsLoading?: boolean;
   selectedCaseId?: string | null;
   onCaseSelect: (c: EmergencyCase | null) => void;
   onOverrideSubmit: (caseId: string, newHospital: ScoredHospital) => Promise<void>;
+  onHospitalAck: (caseId: string, hospitalId: string) => Promise<void>;
+  onHospitalReject: (caseId: string, hospitalId: string) => Promise<void>;
 }
 
-export default function DispatchSidebar({ cases, hospitals, congestion, selectedCaseId, onCaseSelect, onOverrideSubmit }: DispatchSidebarProps) {
+export default function DispatchSidebar({
+  cases,
+  hospitals,
+  congestion,
+  constraints,
+  onConstraintsChange,
+  routeOptions,
+  routeOptionsLoading,
+  selectedCaseId,
+  onCaseSelect,
+  onOverrideSubmit,
+  onHospitalAck,
+  onHospitalReject,
+}: DispatchSidebarProps) {
   const [isOverriding, setIsOverriding] = useState(false);
 
   const selectedCase = cases.find(c => c.caseId === selectedCaseId);
@@ -50,7 +69,10 @@ export default function DispatchSidebar({ cases, hospitals, congestion, selected
       const res = await fetch('/api/dispatch/cases/batch', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ cases: highwayCluster })
+        body: JSON.stringify({
+          cases: highwayCluster,
+          massCasualtyMode: constraints.massCasualtyMode !== false,
+        })
       });
       
       if (res.ok) {
@@ -62,6 +84,36 @@ export default function DispatchSidebar({ cases, hospitals, congestion, selected
     } finally {
       setIsOverriding(false);
     }
+  }
+
+  const visibleAlternatives = routeOptions?.alternatives ?? selectedCase?.alternatives ?? [];
+  const recommendedOption = routeOptions?.recommended ?? null;
+
+  const scoreRows = selectedCase?.assignedHospital?.scoreBreakdown
+    ? [
+        ['Drive', selectedCase.assignedHospital.scoreBreakdown.driveComponent],
+        ['Wait', selectedCase.assignedHospital.scoreBreakdown.waitComponent],
+        ['Occupancy', selectedCase.assignedHospital.scoreBreakdown.occupancyComponent],
+        ['Specialty', selectedCase.assignedHospital.scoreBreakdown.specialtyComponent],
+        ['Equipment', selectedCase.assignedHospital.scoreBreakdown.equipmentComponent],
+        ['Mass-casualty', selectedCase.assignedHospital.scoreBreakdown.massCasualtyComponent],
+      ]
+    : [];
+
+  function ackBadge(ackStatus?: string) {
+    if (ackStatus === 'acknowledged') {
+      return 'bg-emerald-100 text-emerald-700 border-emerald-300';
+    }
+    if (ackStatus === 'rejected') {
+      return 'bg-red-100 text-red-700 border-red-300';
+    }
+    return 'bg-amber-100 text-amber-700 border-amber-300';
+  }
+
+  function ackLabel(ackStatus?: string) {
+    if (ackStatus === 'acknowledged') return 'ACK';
+    if (ackStatus === 'rejected') return 'REJECTED';
+    return 'PENDING ACK';
   }
 
   return (
@@ -91,6 +143,69 @@ export default function DispatchSidebar({ cases, hospitals, congestion, selected
         </button>
       </div>
 
+      <div className="mb-3 rounded-xl border border-slate-200 bg-white p-3">
+        <p className="text-[0.65rem] font-bold uppercase tracking-widest text-slate-500 mb-2">Constraint Filters</p>
+        <div className="grid grid-cols-2 gap-2 text-[0.7rem]">
+          <label className="flex items-center gap-1.5 text-slate-700 font-semibold">
+            <input
+              type="checkbox"
+              checked={Boolean(constraints.requireVentilator)}
+              onChange={(e) => onConstraintsChange({ ...constraints, requireVentilator: e.target.checked })}
+            />
+            Ventilator
+          </label>
+          <label className="flex items-center gap-1.5 text-slate-700 font-semibold">
+            <input
+              type="checkbox"
+              checked={Boolean(constraints.requireIcu)}
+              onChange={(e) => onConstraintsChange({ ...constraints, requireIcu: e.target.checked })}
+            />
+            ICU
+          </label>
+          <label className="flex items-center gap-1.5 text-slate-700 font-semibold">
+            <input
+              type="checkbox"
+              checked={Boolean(constraints.requireCardiacSpecialist)}
+              onChange={(e) => onConstraintsChange({ ...constraints, requireCardiacSpecialist: e.target.checked })}
+            />
+            Cardiac
+          </label>
+          <label className="flex items-center gap-1.5 text-slate-700 font-semibold">
+            <input
+              type="checkbox"
+              checked={Boolean(constraints.requireNeurosurgeon)}
+              onChange={(e) => onConstraintsChange({ ...constraints, requireNeurosurgeon: e.target.checked })}
+            />
+            Neurosurgeon
+          </label>
+        </div>
+
+        <div className="mt-3">
+          <div className="flex items-center justify-between text-[0.65rem] text-slate-500 font-bold uppercase tracking-wider mb-1">
+            <span>Max Occupancy</span>
+            <span>{constraints.maxOccupancyPct ?? 95}%</span>
+          </div>
+          <input
+            type="range"
+            min={50}
+            max={100}
+            step={5}
+            value={constraints.maxOccupancyPct ?? 95}
+            onChange={(e) => onConstraintsChange({ ...constraints, maxOccupancyPct: Number(e.target.value) })}
+            className="w-full"
+          />
+        </div>
+
+        <label className="mt-2 flex items-center gap-2 text-[0.72rem] font-bold uppercase tracking-wider text-amber-700">
+          <input
+            type="checkbox"
+            checked={constraints.massCasualtyMode !== false}
+            onChange={(e) => onConstraintsChange({ ...constraints, massCasualtyMode: e.target.checked })}
+          />
+          Mass Casualty Mode
+        </label>
+      </div>
+
       <div className="flex-1 overflow-y-auto pr-2 pb-10 flex flex-col gap-3">
         {selectedCase ? (
           <div>
@@ -107,6 +222,14 @@ export default function DispatchSidebar({ cases, hospitals, congestion, selected
                   {selectedCase.incidentId}
                 </span>
               )}
+              <span className={`ml-2 civ-badge border ${ackBadge(selectedCase.hospitalAck?.status)}`}>
+                {ackLabel(selectedCase.hospitalAck?.status)}
+              </span>
+              {selectedCase.assignedHospital?.sceneSeverityOverride && (
+                <span className="ml-2 civ-badge bg-fuchsia-100 text-fuchsia-800 border-fuchsia-300">
+                  Scene Override
+                </span>
+              )}
               <h3 className="text-xl font-bold text-slate-800 tracking-tight mt-1">{selectedCase.caseId}</h3>
               
               {/* Assigned Details Box */}
@@ -115,7 +238,8 @@ export default function DispatchSidebar({ cases, hospitals, congestion, selected
                 <p className="font-bold text-slate-800">{selectedCase.assignedHospital?.hospital?.name}</p>
                 
                 {(() => {
-                  const info = getHospitalInfo(selectedCase.assignedHospital?.hospital?.id);
+                  const assignedHospitalId = selectedCase.assignedHospital?.hospital?.id;
+                  const info = getHospitalInfo(assignedHospitalId);
                   if (!info) return null;
                   return (
                     <div className="mt-2 grid grid-cols-2 gap-2 text-[0.7rem]">
@@ -126,6 +250,32 @@ export default function DispatchSidebar({ cases, hospitals, congestion, selected
                       <div className="bg-slate-50 p-1.5 rounded flex flex-col">
                         <span className="text-slate-400 uppercase tracking-wider font-bold text-[0.6rem]">Available Beds</span>
                         <span className="font-bold text-slate-700">ER: {info.availableER} | Gen: {info.availableTotal}</span>
+                      </div>
+                      <div className="col-span-2 flex items-center gap-2 mt-1">
+                        <button
+                          onClick={async () => {
+                            if (!assignedHospitalId) return;
+                            setIsOverriding(true);
+                            await onHospitalAck(selectedCase.caseId, assignedHospitalId);
+                            setIsOverriding(false);
+                          }}
+                          disabled={isOverriding || !assignedHospitalId}
+                          className="flex-1 text-[0.68rem] font-bold bg-emerald-100 hover:bg-emerald-200 text-emerald-900 px-2 py-1 rounded-md border border-emerald-300"
+                        >
+                          Mark ACK
+                        </button>
+                        <button
+                          onClick={async () => {
+                            if (!assignedHospitalId) return;
+                            setIsOverriding(true);
+                            await onHospitalReject(selectedCase.caseId, assignedHospitalId);
+                            setIsOverriding(false);
+                          }}
+                          disabled={isOverriding || !assignedHospitalId}
+                          className="flex-1 text-[0.68rem] font-bold bg-red-100 hover:bg-red-200 text-red-900 px-2 py-1 rounded-md border border-red-300"
+                        >
+                          Mark Reject
+                        </button>
                       </div>
                     </div>
                   );
@@ -145,6 +295,26 @@ export default function DispatchSidebar({ cases, hospitals, congestion, selected
               )}
             </div>
 
+            <div className="bg-slate-50 border border-slate-200 rounded-xl p-3 mb-4">
+              <p className="text-[0.65rem] font-bold uppercase tracking-widest text-slate-400 mb-2">Explainability</p>
+              {scoreRows.length ? (
+                <div className="grid grid-cols-2 gap-2 text-[0.72rem]">
+                  {scoreRows.map(([label, value]) => (
+                    <div key={String(label)} className="flex items-center justify-between bg-white border border-slate-200 rounded px-2 py-1">
+                      <span className="text-slate-500 font-semibold">{label}</span>
+                      <span className="text-slate-800 font-bold">{Number(value).toFixed(1)}</span>
+                    </div>
+                  ))}
+                  <div className="col-span-2 flex items-center justify-between bg-sky-50 border border-sky-200 rounded px-2 py-1.5">
+                    <span className="text-sky-700 font-bold">Total Score</span>
+                    <span className="text-sky-900 font-black">{selectedCase.assignedHospital?.scoreBreakdown?.total?.toFixed?.(1) ?? selectedCase.assignedHospital?.score}</span>
+                  </div>
+                </div>
+              ) : (
+                <p className="text-xs text-slate-500">Score breakdown is unavailable for this case. New incoming cases will include it.</p>
+              )}
+            </div>
+
             <div className="mb-6">
               <p className="text-[0.65rem] font-bold uppercase tracking-widest text-slate-400 mb-2">Original Message</p>
               <div className="p-3 bg-white border border-slate-200 rounded-xl shadow-sm text-sm text-slate-800">
@@ -154,8 +324,30 @@ export default function DispatchSidebar({ cases, hospitals, congestion, selected
 
             <div className="mb-4 border-t border-slate-100 pt-4">
               <h4 className="text-[0.8rem] font-bold uppercase tracking-widest text-slate-600 mb-3">Re-Route Alternatives</h4>
+              {routeOptionsLoading && (
+                <p className="text-[0.7rem] text-slate-500 mb-2">Computing options for active constraints...</p>
+              )}
+              {recommendedOption && (
+                <div className="mb-3 rounded-xl border border-emerald-200 bg-emerald-50 p-3">
+                  <p className="text-[0.62rem] font-bold uppercase tracking-wider text-emerald-700 mb-1">Best match for current filters</p>
+                  <div className="flex items-center justify-between gap-2">
+                    <p className="text-[0.8rem] font-bold text-emerald-900">{recommendedOption.hospital.name}</p>
+                    <button
+                      onClick={async () => {
+                        setIsOverriding(true);
+                        await onOverrideSubmit(selectedCase.caseId, recommendedOption);
+                        setIsOverriding(false);
+                      }}
+                      disabled={isOverriding}
+                      className="text-[0.68rem] font-bold bg-emerald-200 hover:bg-emerald-300 text-emerald-900 px-2 py-1 rounded-md"
+                    >
+                      Set Target
+                    </button>
+                  </div>
+                </div>
+              )}
               <div className="flex flex-col gap-3">
-                {selectedCase.alternatives?.map((alt: any) => {
+                {visibleAlternatives.map((alt: any) => {
                   const altInfo = getHospitalInfo(alt.hospital.id);
                   return (
                     <div key={alt.hospital.id} className="flex flex-col gap-2 border border-slate-200 hover:border-sky-300 transition-colors rounded-xl p-3 bg-white shadow-sm">
@@ -215,6 +407,9 @@ export default function DispatchSidebar({ cases, hospitals, congestion, selected
                       MCI
                     </span>
                   )}
+                  <span className={`ml-1.5 text-[0.6rem] font-black uppercase tracking-widest px-1.5 py-0.5 rounded border ${ackBadge(c.hospitalAck?.status)}`}>
+                    {ackLabel(c.hospitalAck?.status)}
+                  </span>
                   <div className="text-sm font-bold text-slate-800 tracking-tight mt-0.5">{c.caseId}</div>
                 </div>
                 <div className="text-[0.65rem] text-slate-400 font-medium">

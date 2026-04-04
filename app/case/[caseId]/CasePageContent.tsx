@@ -2,7 +2,6 @@
 
 import { useEffect, useState, useRef } from 'react';
 import dynamic from 'next/dynamic';
-import { useParams } from 'next/navigation';
 import type { EmergencyCase } from '@/lib/clearpath/caseTypes';
 
 const CaseMap = dynamic(() => import('./CaseMap'), { ssr: false });
@@ -14,10 +13,45 @@ const SEVERITY_CONFIG = {
 };
 
 export default function CasePageContent({ caseId, initialData, initialError }: { caseId: string; initialData: EmergencyCase | null; initialError: string | null }) {
-  const [caseData] = useState<EmergencyCase | null>(initialData);
-  const [error] = useState<string | null>(initialError);
+  const [caseData, setCaseData] = useState<EmergencyCase | null>(initialData);
+  const [error, setError] = useState<string | null>(initialError);
+  const [loading, setLoading] = useState<boolean>(!initialData && !initialError);
   const [elapsed, setElapsed] = useState(0);
   const timerRef = useRef<ReturnType<typeof setInterval> | null>(null);
+
+  useEffect(() => {
+    if (initialData) return;
+
+    let cancelled = false;
+
+    async function loadCase() {
+      setLoading(true);
+      try {
+        const res = await fetch(`/api/cases?id=${encodeURIComponent(caseId)}`, { cache: 'no-store' });
+        const payload = await res.json().catch(() => ({}));
+        if (!res.ok) {
+          throw new Error(payload?.error || 'Case not found. It may have expired or the ID is incorrect.');
+        }
+
+        if (!cancelled) {
+          setCaseData(payload as EmergencyCase);
+          setError(null);
+        }
+      } catch (err) {
+        if (!cancelled) {
+          setCaseData(null);
+          setError(err instanceof Error ? err.message : 'Failed to load case.');
+        }
+      } finally {
+        if (!cancelled) setLoading(false);
+      }
+    }
+
+    loadCase();
+    return () => {
+      cancelled = true;
+    };
+  }, [caseId, initialData]);
 
   useEffect(() => {
     if (caseData && caseData.createdAt) {
@@ -38,7 +72,7 @@ export default function CasePageContent({ caseId, initialData, initialError }: {
     </div>
   );
 
-  if (!caseData) return (
+  if (loading || !caseData) return (
     <div className="fixed inset-0 bg-slate-950 flex items-center justify-center">
       <div className="text-center">
         <div className="w-10 h-10 border-2 border-white/20 border-t-red-500 rounded-full animate-spin mx-auto mb-4" />
