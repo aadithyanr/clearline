@@ -304,7 +304,8 @@ export async function scoreAndRankHospitals(
 
   return {
     recommended: scored[0],
-    alternatives: scored.slice(1, 3),
+    // Keep top 4 alternatives so UI/bot can show 4-5 choices total.
+    alternatives: scored.slice(1, 5),
   };
 }
 

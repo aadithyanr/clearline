@@ -3,8 +3,41 @@ import { readCase } from '@/lib/clearpath/caseStore';
 import {
   emitCoordinationTrigger,
   hasRecentCoordinationTrigger,
+  readRecentMonitorEvents,
 } from '@/lib/clearpath/routeMonitorService';
 import { evaluateCoordinationPolicy } from '@/lib/clearpath/policeTrafficTrigger';
+
+export async function GET(req: NextRequest) {
+  try {
+    const caseId = req.nextUrl.searchParams.get('caseId') || undefined;
+    const limitRaw = Number(req.nextUrl.searchParams.get('limit') || 30);
+    const limit = Number.isFinite(limitRaw) ? Math.max(1, Math.min(100, limitRaw)) : 30;
+
+    const now = Date.now();
+    const sinceTs = now - 1000 * 60 * 60 * 24 * 7; // last 7 days
+    const events = await readRecentMonitorEvents(sinceTs, 500);
+
+    const filtered = events
+      .filter((e) => e.type === 'coordination_triggered')
+      .filter((e) => (caseId ? e.caseId === caseId : true))
+      .sort((a, b) => b.ts - a.ts)
+      .slice(0, limit)
+      .map((e) => ({
+        caseId: e.caseId,
+        ts: e.ts,
+        reason: e.reason,
+        channel: e.coordination?.channel ?? 'traffic',
+        severity: e.coordination?.severity ?? 'urgent',
+        etaDriftMinutes: e.etaDriftMinutes ?? null,
+      }));
+
+    return NextResponse.json({ events: filtered });
+  } catch (err: unknown) {
+    console.error('[GET /api/alerts/police-traffic]', err);
+    const message = err instanceof Error ? err.message : 'Failed to fetch police coordination register';
+    return NextResponse.json({ error: message, events: [] }, { status: 500 });
+  }
+}
 
 export async function POST(req: NextRequest) {
   try {
@@ -15,6 +48,7 @@ export async function POST(req: NextRequest) {
     const currentEtaMinutes =
       typeof body?.currentEtaMinutes === 'number' ? body.currentEtaMinutes : undefined;
     const roadClosureReported = Boolean(body?.roadClosureReported);
+    const forceTrigger = Boolean(body?.forceTrigger);
 
     if (!caseId) {
       return NextResponse.json({ error: 'caseId is required' }, { status: 400 });
@@ -54,7 +88,7 @@ export async function POST(req: NextRequest) {
     }
 
     const duplicate = await hasRecentCoordinationTrigger(caseId);
-    if (duplicate) {
+    if (duplicate && !forceTrigger) {
       return NextResponse.json({
         caseId,
         triggered: false,

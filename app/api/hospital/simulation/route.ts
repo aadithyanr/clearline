@@ -270,6 +270,7 @@ export async function POST(req: NextRequest) {
           roadClosureReported: true,
           baselineEtaMinutes,
           currentEtaMinutes,
+          forceTrigger: Boolean(body?.forceTrigger),
         }),
       });
 
