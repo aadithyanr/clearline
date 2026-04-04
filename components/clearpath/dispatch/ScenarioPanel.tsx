@@ -37,7 +37,6 @@ const SCENARIOS: Array<{ id: Scenario; emoji: string; label: string; description
 ];
 
 export default function ScenarioPanel({ selectedCaseId, onMutate }: ScenarioPanelProps) {
-  const [open, setOpen] = useState(false);
   const [running, setRunning] = useState<Scenario | null>(null);
   const [result, setResult] = useState<{ ok: boolean; message: string } | null>(null);
 
@@ -103,10 +102,15 @@ export default function ScenarioPanel({ selectedCaseId, onMutate }: ScenarioPane
         const caseRes = await fetch(`/api/dispatch/cases?id=${selectedCaseId}`);
         const caseData = await caseRes.json().catch(() => null);
         const alternatives = caseData?.alternatives ?? [];
-        const fallback = alternatives[0];
+        let fallback = alternatives[0];
         if (!fallback) {
-          setResult({ ok: false, message: 'No alternative hospital available' });
-          return;
+          fallback = {
+            hospital: { id: 'demo-icu-annex', name: 'City Central ICU Annex' },
+            totalEstimatedMinutes: 18,
+            drivingTimeMinutes: 15,
+            waitMinutes: 3,
+            reason: 'Fallback generated for ICU unavailability simulation',
+          };
         }
         const res = await fetch(`/api/dispatch/cases/${selectedCaseId}/override`, {
           method: 'POST',
@@ -150,30 +154,8 @@ export default function ScenarioPanel({ selectedCaseId, onMutate }: ScenarioPane
   }
 
   return (
-    <>
-      {/* Floating trigger button */}
-      <button
-        onClick={() => { setOpen(o => !o); setResult(null); }}
-        className={`
-          fixed bottom-6 right-6 z-50
-          flex items-center gap-2
-          px-4 py-2.5 rounded-full
-          text-sm font-bold tracking-wide
-          shadow-xl transition-all duration-200
-          ${open
-            ? 'bg-slate-50 text-slate-800 border border-slate-200'
-            : 'bg-white text-slate-800 border border-slate-200 hover:bg-slate-50 hover:scale-105 active:scale-95'
-          }
-        `}
-      >
-        <span className={`transition-transform duration-200 ${open ? 'rotate-45' : ''}`}>⚡</span>
-        {open ? 'Close' : 'Scenarios'}
-      </button>
-
-      {/* Scenario overlay panel */}
-      {open && (
-        <div className="fixed bottom-20 right-6 z-50 w-80">
-          <div className="bg-white/95 backdrop-blur-xl border border-slate-200 rounded-2xl shadow-xl overflow-hidden">
+    <div className="w-full flex-shrink-0">
+      <div className="bg-white/95 backdrop-blur-xl border border-slate-200 rounded-2xl shadow-xl overflow-hidden pointer-events-auto">
 
             {/* Panel header */}
             <div className="px-4 pt-4 pb-3 border-b border-slate-100">
@@ -221,9 +203,7 @@ export default function ScenarioPanel({ selectedCaseId, onMutate }: ScenarioPane
                 {result.ok ? '✓ ' : '✕ '}{result.message}
               </div>
             )}
-          </div>
-        </div>
-      )}
-    </>
+      </div>
+    </div>
   );
 }

@@ -125,46 +125,29 @@ export default function CasePageContent({ caseId, initialData, initialError }: {
           <div className={`h-1.5 w-full bg-gradient-to-r from-${sev.bg.replace('bg-', '')} to-transparent`}
                style={{ background: `linear-gradient(90deg, ${sev.color}, transparent)` }} />
 
-          <div className="p-5">
+          <div className="p-4">
 
             {/* Ambulance status */}
-            <div className="flex items-center gap-2 mb-4">
-              <div className={`w-2.5 h-2.5 rounded-full ${sev.bg} animate-pulse shadow-sm`} />
-              <span className="text-xs font-bold text-slate-500 uppercase tracking-widest">
-                {caseData.status === 'en_route' ? 'Ambulance En Route' : caseData.status === 'arrived' ? 'Arrived' : 'Routing...'}
+            <div className="flex items-center gap-2 mb-3">
+              <div className={`w-2 h-2 rounded-full ${sev.bg} animate-pulse shadow-sm`} />
+              <span className="text-[10px] font-bold text-slate-500 uppercase tracking-widest">
+                {caseData.status === 'en_route' ? 'En Route' : caseData.status === 'arrived' ? 'Arrived' : 'Routing...'}
               </span>
-              <span className="ml-auto text-xs text-slate-400 font-medium">{formatElapsed(elapsed)} ago</span>
+              <span className="ml-auto text-[10px] text-slate-400 font-medium">{formatElapsed(elapsed)} ago</span>
             </div>
 
             {/* Hospital name */}
-            <h1 className="text-slate-800 font-black text-xl leading-tight mb-1">
+            <h1 className="text-slate-800 font-black text-lg leading-tight mb-1">
               {hosp?.name ?? '—'}
             </h1>
-            <p className="text-slate-500 text-xs mb-4">{hosp?.city ? hosp.city.charAt(0).toUpperCase() + hosp.city.slice(1) : ''}</p>
+            <p className="text-slate-500 text-xs mb-3">{hosp?.city ? hosp.city.charAt(0).toUpperCase() + hosp.city.slice(1) : ''}</p>
 
             {/* Stats row */}
-            <div className="grid grid-cols-3 gap-2 mb-4">
+            <div className="grid grid-cols-3 gap-2">
               <StatCard label="ETA" value={`~${etaRemaining} min`} accent={sev.color} />
               <StatCard label="Drive" value={`${eta} min`} />
               <StatCard label="Wait" value={`~${rec?.adjustedWaitMinutes ?? '?'} min`} />
             </div>
-
-            {/* Triage reasoning */}
-            <div className={`bg-slate-50 border ${sev.border} rounded-2xl p-3 mb-4`}>
-              <p className={`text-[10px] font-bold uppercase tracking-widest mb-1 ${sev.text}`}>Why this hospital</p>
-              <p className="text-slate-600 text-xs leading-relaxed">{rec?.reason || caseData.triage.reasoning}</p>
-            </div>
-
-            {/* Predicted needs */}
-            {(caseData.triage.predictedNeeds?.length ?? 0) > 0 && (
-              <div className="flex flex-wrap gap-1.5">
-                {caseData.triage.predictedNeeds.map((need: string) => (
-                  <span key={need} className="text-[10px] font-bold uppercase tracking-wider px-2 py-0.5 rounded-full bg-slate-100 border border-slate-200 text-slate-500">
-                    {need}
-                  </span>
-                ))}
-              </div>
-            )}
           </div>
 
           {/* Call 112 button for critical */}
@@ -181,9 +164,9 @@ export default function CasePageContent({ caseId, initialData, initialError }: {
 
 function StatCard({ label, value, accent }: { label: string; value: string; accent?: string }) {
   return (
-    <div className="bg-slate-50 border border-slate-200 rounded-2xl p-3 text-center">
-      <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest mb-1">{label}</p>
-      <p className="text-slate-800 font-black text-sm" style={accent ? { color: accent } : {}}>{value}</p>
+    <div className="bg-slate-50 border border-slate-200 rounded-xl p-2.5 text-center">
+      <p className="text-[9px] font-bold text-slate-400 uppercase tracking-widest leading-none mb-1">{label}</p>
+      <p className="text-slate-800 font-black text-xs leading-none" style={accent ? { color: accent } : {}}>{value}</p>
     </div>
   );
 }

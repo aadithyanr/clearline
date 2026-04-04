@@ -38,13 +38,11 @@ body {
     border-radius: 9999px;
     border: 1px solid rgba(255, 255, 255, 0.45);
     background:
-      linear-gradient(
-        135deg,
+      linear-gradient(135deg,
         rgba(255, 255, 255, 0.55) 0%,
         rgba(240, 249, 255, 0.4) 40%,
         rgba(224, 242, 254, 0.35) 70%,
-        rgba(255, 255, 255, 0.5) 100%
-      );
+        rgba(255, 255, 255, 0.5) 100%);
     backdrop-filter: blur(24px) saturate(1.8);
     -webkit-backdrop-filter: blur(24px) saturate(1.8);
     box-shadow:
@@ -100,11 +98,9 @@ body {
   .lp-nav-btn--secondary {
     color: #1e293b;
     background:
-      linear-gradient(
-        135deg,
+      linear-gradient(135deg,
         rgba(255, 255, 255, 0.7) 0%,
-        rgba(241, 245, 249, 0.55) 100%
-      );
+        rgba(241, 245, 249, 0.55) 100%);
     border: 1px solid rgba(148, 163, 184, 0.25);
     box-shadow:
       0 0 0 0.5px rgba(255, 255, 255, 0.5) inset,
@@ -114,11 +110,9 @@ body {
   .lp-nav-btn--secondary:hover {
     color: #0f172a;
     background:
-      linear-gradient(
-        135deg,
+      linear-gradient(135deg,
         rgba(255, 255, 255, 0.85) 0%,
-        rgba(241, 245, 249, 0.7) 100%
-      );
+        rgba(241, 245, 249, 0.7) 100%);
     border-color: rgba(148, 163, 184, 0.35);
     box-shadow:
       0 0 0 0.5px rgba(255, 255, 255, 0.6) inset,
@@ -129,12 +123,10 @@ body {
   .lp-nav-btn--primary {
     color: #fff;
     background:
-      linear-gradient(
-        135deg,
+      linear-gradient(135deg,
         #38bdf8 0%,
         #0ea5e9 40%,
-        #0284c7 100%
-      );
+        #0284c7 100%);
     border: 1px solid rgba(56, 189, 248, 0.3);
     box-shadow:
       0 0 0 0.5px rgba(255, 255, 255, 0.2) inset,
@@ -481,9 +473,17 @@ body {
     border-radius: 50%;
   }
 
-  .lp-browser-dots span:nth-child(1) { background: #ef4444; }
-  .lp-browser-dots span:nth-child(2) { background: #eab308; }
-  .lp-browser-dots span:nth-child(3) { background: #22c55e; }
+  .lp-browser-dots span:nth-child(1) {
+    background: #ef4444;
+  }
+
+  .lp-browser-dots span:nth-child(2) {
+    background: #eab308;
+  }
+
+  .lp-browser-dots span:nth-child(3) {
+    background: #22c55e;
+  }
 
   .lp-browser-url {
     flex: 1;
@@ -543,11 +543,9 @@ body {
     padding: 1.5rem 1.6rem;
     border-radius: 18px;
     background:
-      linear-gradient(
-        160deg,
+      linear-gradient(160deg,
         rgba(255, 255, 255, 0.75) 0%,
-        rgba(240, 249, 255, 0.6) 100%
-      );
+        rgba(240, 249, 255, 0.6) 100%);
     backdrop-filter: blur(16px) saturate(1.4);
     border: 1px solid rgba(255, 255, 255, 0.7);
     box-shadow:
@@ -860,7 +858,7 @@ body {
     pointer-events: none;
   }
 
-  .cp-map-rail > * {
+  .cp-map-rail>* {
     pointer-events: auto;
   }
 
@@ -1519,11 +1517,9 @@ body {
     border-radius: 9999px;
     padding: 3px;
     background:
-      linear-gradient(
-        135deg,
+      linear-gradient(135deg,
         rgba(255, 255, 255, 0.6) 0%,
-        rgba(240, 249, 255, 0.5) 100%
-      );
+        rgba(240, 249, 255, 0.5) 100%);
     backdrop-filter: blur(20px) saturate(1.6);
     -webkit-backdrop-filter: blur(20px) saturate(1.6);
     border: 1px solid rgba(255, 255, 255, 0.4);
@@ -1569,12 +1565,21 @@ body {
 }
 
 @keyframes lpShimmer {
-  0%, 100% { background-position: 0% center; }
-  50% { background-position: 200% center; }
+
+  0%,
+  100% {
+    background-position: 0% center;
+  }
+
+  50% {
+    background-position: 200% center;
+  }
 }
 
 @keyframes civSpin {
-  to { transform: rotate(360deg); }
+  to {
+    transform: rotate(360deg);
+  }
 }
 
 @media (max-width: 768px) {
@@ -1735,4 +1740,13 @@ h3,
   text-transform: uppercase;
   letter-spacing: 0.05em;
   color: #64748b;
+}
+
+nextjs-portal {
+  display: none;
+}
+
+body {
+  padding: 0 !important;
+  overflow: auto !important;
 }

@@ -4,7 +4,6 @@ import { useState, useEffect } from 'react';
 import useSWR from 'swr';
 import ClearPathMap from '@/components/clearpath/ClearPathMap';
 import DispatchSidebar from '@/components/clearpath/dispatch/DispatchSidebar';
-import HospitalLoadPanel from '@/components/clearpath/dispatch/HospitalLoadPanel';
 import ScenarioPanel from '@/components/clearpath/dispatch/ScenarioPanel';
 import type { EmergencyCase } from '@/lib/clearpath/caseTypes';
 import type { ScoredHospital } from '@/lib/clearpath/types';
@@ -76,8 +75,8 @@ export default function DispatchPageContent() {
 
   // What the map renders: if a case is selected, draw its specific route
   const recommendedHospital = selectedCase ? {
-    recommended: selectedCase.assignedHospital,
-    alternatives: selectedCase.alternatives || [],
+    recommended: (selectedCase as any).assignedHospital,
+    alternatives: (selectedCase.alternatives || []) as any[],
     userLocation: selectedCase.userLocation,
   } : null;
 
@@ -100,9 +99,12 @@ export default function DispatchPageContent() {
       {/* UI overlays */}
       <div className="absolute inset-0 pointer-events-none z-10 flex justify-between p-4 gap-4">
 
-        {/* Left: Hospital Load Panel */}
-        <div className="pointer-events-auto flex flex-col h-full">
-          <HospitalLoadPanel hospitals={hospitals} congestion={congestion} />
+        {/* Left: Scenarios Panel */}
+        <div className="pointer-events-auto flex flex-col h-full w-80">
+          <ScenarioPanel
+            selectedCaseId={selectedCase?.caseId}
+            onMutate={() => void mutate()}
+          />
         </div>
 
         {/* Right: Dispatch Sidebar */}
@@ -118,11 +120,6 @@ export default function DispatchPageContent() {
         </div>
       </div>
 
-      {/* Floating Scenario Panel (bottom-right, above everything) */}
-      <ScenarioPanel
-        selectedCaseId={selectedCase?.caseId}
-        onMutate={() => void mutate()}
-      />
     </div>
   );
 }
