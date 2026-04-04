@@ -12,6 +12,210 @@ export class WhatsappBot {
   client: any;
   caseMonitorInterval: NodeJS.Timeout | null = null;
 
+  buildCareMessage(severity: 'critical' | 'urgent' | 'non-urgent' | string, reasoning?: string) {
+    const sev = String(severity || 'urgent').toLowerCase();
+    if (sev === 'critical') {
+      return (
+        'Immediate care while ambulance is en-route: keep patient lying flat (or recovery position if unconscious but breathing), ' +
+        'control heavy bleeding with firm pressure, and do not give food/water. ' +
+        (reasoning ? `Focus risk: ${reasoning}` : '')
+      ).trim();
+    }
+
+    if (sev === 'urgent') {
+      return (
+        'Immediate care: keep patient calm, avoid physical exertion, monitor breathing and consciousness continuously, ' +
+        'and be ready to share any change in symptoms. ' +
+        (reasoning ? `Observed risk: ${reasoning}` : '')
+      ).trim();
+    }
+
+    return (
+      'Supportive care: keep hydrated if safe, monitor symptoms, avoid self-medication beyond basic first aid, ' +
+      'and escalate immediately if pain, breathing, or consciousness worsens. ' +
+      (reasoning ? `Current guidance based on: ${reasoning}` : '')
+    ).trim();
+  }
+
+  detectLikelyEmergency(text: string) {
+    const t = text.toLowerCase();
+    const criticalSignals = [
+      'chest pain', 'can\'t breathe', 'cannot breathe', 'breathing problem', 'shortness of breath',
+      'unconscious', 'not responding', 'seizure', 'stroke', 'bleeding heavily', 'severe bleeding',
+      'head injury', 'heart attack', 'heartattack', 'hartattack',
+      'not able to breath', 'not able to breathe', 'breath problem',
+      'collapsed', 'critical',
+    ];
+    return criticalSignals.some((s) => t.includes(s));
+  }
+
+  detectAssistanceIntent(text: string) {
+    const t = text.toLowerCase();
+    const assistSignals = [
+      'what should i do', 'what to do', 'how to', 'can i', 'should i', 'is it normal', 'advice', 'guidance',
+      'precaution', 'home care', 'general question', 'tips', 'help with',
+    ];
+    return assistSignals.some((s) => t.includes(s));
+  }
+
+  detectSeriousIssue(text: string) {
+    const t = text.toLowerCase();
+    // Keywords indicating a serious health issue (not just a question)
+    const seriousSignals = [
+      'happening', 'is happening', 'experiencing', 'have', 'getting', 'started',
+      'feeling', 'pain', 'hurt', 'accident', 'fell', 'injured', 'problem',
+      'sick', 'fever', 'vomit', 'dizziness', 'numbness', 'weakness',
+    ];
+    return seriousSignals.some((s) => t.includes(s));
+  }
+
+  getLatestUserMessage(messages?: Array<{ role: 'user' | 'assistant'; content: string }>) {
+    if (!Array.isArray(messages) || messages.length === 0) return '';
+    for (let i = messages.length - 1; i >= 0; i -= 1) {
+      if (messages[i]?.role === 'user' && messages[i]?.content) return String(messages[i].content).trim();
+    }
+    return '';
+  }
+
+  parseLocationFromText(text: string): { lat: number; lng: number } | null {
+    if (!text?.trim()) return null;
+
+    try {
+      const maybe = JSON.parse(text);
+      const lat = Number(maybe?.lat);
+      const lng = Number(maybe?.lng);
+      if (Number.isFinite(lat) && Number.isFinite(lng) && lat >= -90 && lat <= 90 && lng >= -180 && lng <= 180) {
+        return { lat, lng };
+      }
+    } catch {
+      // ignore non-JSON
+    }
+
+    const matches = text.match(/-?\d+(?:\.\d+)?/g);
+    if (!matches || matches.length < 2) return null;
+    const lat = Number(matches[0]);
+    const lng = Number(matches[1]);
+    if (!Number.isFinite(lat) || !Number.isFinite(lng)) return null;
+    if (lat < -90 || lat > 90 || lng < -180 || lng > 180) return null;
+    return { lat, lng };
+  }
+
+  formatHospitalAlternatives(alternatives: any[]) {
+    if (!Array.isArray(alternatives) || alternatives.length === 0) {
+      return 'No strong alternate hospitals available right now.';
+    }
+
+    return alternatives
+      .slice(0, 4)
+      .map((alt, idx) => {
+        const name = String(alt?.hospital?.name || `Alternative ${idx + 1}`);
+        const eta = typeof alt?.totalEstimatedMinutes === 'number' ? `${alt.totalEstimatedMinutes} min` : 'ETA pending';
+        const occ = typeof alt?.occupancyPct === 'number' ? `${alt.occupancyPct}% occupancy` : 'load unknown';
+        return `${idx + 1}. ${name} (${eta}, ${occ})`;
+      })
+      .join('\n');
+  }
+
+  async routeCaseFromCoordinates(
+    from: string,
+    lat: number,
+    lng: number,
+    session: {
+      imageSeverity?: 'high' | 'low';
+      distressMessage?: string;
+      messages?: Array<{ role: 'user' | 'assistant'; content: string }>;
+    },
+    reply: (content: string) => Promise<any>,
+  ) {
+    const inferredDistressMessage =
+      session?.distressMessage ||
+      this.getLatestUserMessage(session?.messages) ||
+      'Emergency case reported via WhatsApp location pin.';
+
+    await reply('Location received. Finding best hospital now...');
+
+    const baseUrl = this.getBaseUrl();
+    const city = await this.detectCity(lat, lng);
+    const res = await fetch(`${baseUrl}/api/cases`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        message: inferredDistressMessage,
+        userLat: lat,
+        userLng: lng,
+        city,
+        imageSeverity: session.imageSeverity,
+      }),
+    });
+
+    if (!res.ok) throw new Error(`API Error: ${await res.text()}`);
+    const caseData = await res.json();
+
+    const fullCaseRes = await fetch(`${baseUrl}/api/cases?id=${encodeURIComponent(caseData.caseId)}`);
+    const fullCase = fullCaseRes.ok ? await fullCaseRes.json() : null;
+    const triageReason = String(fullCase?.triage?.reasoning || 'Live emergency triage and routing constraints selected this destination.');
+    const status = String(fullCase?.status || 'awaiting_hospital_ack');
+    const primaryHospital = fullCase?.assignedHospital?.hospital || {};
+    const severity = String(fullCase?.triage?.severity || caseData?.severity || 'urgent');
+    const careMessage = this.buildCareMessage(severity, triageReason);
+    const alternatives = Array.isArray(fullCase?.alternatives) ? fullCase.alternatives : [];
+    const alternativesText = this.formatHospitalAlternatives(alternatives);
+    let policeNotificationSent = false;
+
+    if (session.imageSeverity === 'high') {
+      const baselineEtaMinutes = Math.max(8, Number(caseData?.drivingTimeMinutes || 15));
+      const currentEtaMinutes = baselineEtaMinutes + 12;
+
+      const policeRes = await fetch(`${baseUrl}/api/alerts/police-traffic`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          caseId: caseData.caseId,
+          roadClosureReported: true,
+          baselineEtaMinutes,
+          currentEtaMinutes,
+        }),
+      });
+
+      const policePayload = policeRes.ok ? await policeRes.json().catch(() => ({})) : {};
+      policeNotificationSent = Boolean(policePayload?.triggered);
+    }
+
+    this.sessions.delete(from);
+    const sevDesc = String(severity).toUpperCase();
+    const emoji = severity === 'critical' ? '🚨' : severity === 'urgent' ? '⚠️' : '🏥';
+
+    await reply(
+      `${emoji} *${sevDesc} CASE DETECTED*\n` +
+      `━━━━━━━━━━━━━━━\n` +
+      `🏥 *Hospital:* ${caseData.hospital}\n` +
+      `⏱️ *ETA:* ~${caseData.drivingTimeMinutes} min drive\n\n` +
+      `🧠 *Why this hospital:* ${triageReason}\n` +
+      `📌 *Current status:* ${status.replaceAll('_', ' ')}\n\n` +
+      `🩺 *Immediate care:* ${careMessage}\n\n` +
+      (policeNotificationSent ? `🚓 *Police/traffic corridor support notified* for this severe scene.\n\n` : '') +
+      `_Ambulance dispatch notified. I will now send destination location and alternates in the next message._`
+    );
+
+    await reply(
+      `📍 *Hospital location and route details*\n` +
+      `Primary: *${String(primaryHospital?.name || caseData.hospital)}*\n` +
+      `🏥 *Alternate hospitals (by name + speed + load):*\n${alternativesText}`
+    );
+
+    // Send case map link as separate message for better WhatsApp linkification
+    await reply(`🗺️ *Live Case Map:*\n${caseData.caseUrl}`);
+
+    this.caseSubscriptions.set(caseData.caseId, {
+      chatId: from,
+      city: String(fullCase?.city || city),
+      lastStatus: status,
+      lastHospitalName: String(fullCase?.assignedHospital?.hospital?.name || caseData.hospital),
+      lastTimelineCount: Array.isArray(fullCase?.timeline) ? fullCase.timeline.length : 0,
+      hadActiveIncident: false,
+    });
+  }
+
   constructor() {
     // Keep auth files in the home directory so Turbopack never scans them
     const authDir = `${os.homedir()}/.clearline-wwebjs/${process.env.WA_CLIENT_ID ?? 'clearline-whatsapp'}`;
@@ -98,6 +302,7 @@ export class WhatsappBot {
   sessions = new Map<string, {
     step: 'idle' | 'chatting' | 'awaiting_location';
     sessionId?: string;
+    locationPromptSent?: boolean;
     distressMessage?: string;
     imageSeverity?: 'high' | 'low';
     imageReasoning?: string;
@@ -159,7 +364,6 @@ export class WhatsappBot {
 
         if (hospitalChanged || statusChanged || timelineChanged) {
           const reason = lastEvent?.reason || lastEvent?.event || 'Operational update from dispatch.';
-          const caseLink = `${baseUrl}/case/${encodeURIComponent(caseId)}`;
           let body = `🚑 *Case Update: ${caseId}*\n`;
 
           if (hospitalChanged) {
@@ -170,19 +374,16 @@ export class WhatsappBot {
 
           body += `📌 Status: *${status.replaceAll('_', ' ').toUpperCase()}*\n`;
           body += `🧠 Reason: ${reason}\n`;
-          body += `🔗 Track Case: ${caseLink}\n`;
           body += `\nThis update is from live dispatch monitoring.`;
 
           await this.client.sendMessage(sub.chatId, body);
         }
 
         if (incidentResolved) {
-          const caseLink = `${baseUrl}/case/${encodeURIComponent(caseId)}`;
           await this.client.sendMessage(
             sub.chatId,
             `✅ *Case Update: ${caseId}*\nIncident impact appears cleared and route conditions are stabilizing. ` +
-              `Current destination remains *${hospitalName}* with status *${status.replaceAll('_', ' ').toUpperCase()}*.\n` +
-              `🔗 Track Case: ${caseLink}`
+              `Current destination remains *${hospitalName}* with status *${status.replaceAll('_', ' ').toUpperCase()}*.`
           );
         }
 
@@ -244,108 +445,250 @@ export class WhatsappBot {
     // Greeting
     if (lc === 'hi' || lc === 'hello' || lc === 'hey') {
       await message.reply(
-        '👋 Welcome to *Clearline Emergency Triage*.\n\n' +
-        'Please describe your symptoms naturally. I will ask follow-ups and guide you step by step.\n\n' +
-        '_For immediate life-threatening danger, always call 112._'
+        '👋 Clearline here. Send your problem in one short line, then share your live location pin.\n' +
+        'I will route to the best hospital immediately.'
       );
       return;
     }
 
     if (session.step === 'awaiting_location') {
-      await message.reply('I am ready to route right now. Please share your current location so I can dispatch to the best hospital. 📍');
+      const textLocation = this.parseLocationFromText(text);
+      if (textLocation) {
+        try {
+          await this.routeCaseFromCoordinates(from, textLocation.lat, textLocation.lng, session, (content) => message.reply(content));
+        } catch (err) {
+          console.error('[WA] route from text location failed', err);
+          await message.reply('Routing failed. Please send live location pin again or call 112 if critical.');
+        }
+        return;
+      }
+
+      if (!session.locationPromptSent) {
+        this.sessions.set(from, {
+          ...session,
+          locationPromptSent: true,
+        });
+        await message.reply(
+          'Please share live location pin now (📎 → Location). If pin is not possible, send JSON like {"lat":18.5204,"lng":73.8567}.',
+        );
+      } else {
+        await message.reply('Waiting for location. Share pin, or send JSON: {"lat":18.5204,"lng":73.8567}.');
+      }
       return;
     }
 
-    // Natural conversational triage via web AI chain
-    const convo = session.messages ?? [];
-    convo.push({ role: 'user', content: text });
+    // Handle hospital confirmation response
+    if (session.step === 'awaiting_hospital_decision') {
+      const yesAnswers = ['yes', 'yep', 'yeah', 'ok', 'okay', 'sure', 'true', 'go', 'hospital'];
+      const noAnswers = ['no', 'nope', 'not', 'dont', 'don\'t', 'false', 'help', 'help me', 'advice'];
+      const isYes = yesAnswers.some((word) => lc.includes(word));
+      const isNo = noAnswers.some((word) => lc.includes(word));
+
+      if (isYes) {
+        // User wants to go to hospital
+        this.sessions.set(from, {
+          ...session,
+          step: 'awaiting_location',
+          locationPromptSent: true,
+          distressMessage: session.distressMessage || text,
+        });
+        await message.reply(
+          '✅ Understood. I can find you the best hospital nearby.\n\n' +
+          'Please share your live location pin now (📎 → Location). If pin is not possible, send JSON like {"lat":18.5204,"lng":73.8567}.'
+        );
+        return;
+      }
+
+      if (isNo) {
+        // User doesn't want hospital, ask what kind of help they need
+        this.sessions.set(from, {
+          ...session,
+          step: 'chatting',
+          messages: [...(session.messages ?? []), { role: 'user', content: text }],
+        });
+        await message.reply(
+          'Okay, no problem. 🙏 What kind of help do you need? I can provide:\n' +
+          '• First aid/home care guidance\n' +
+          '• Symptom advice\n' +
+          '• When to see a doctor tips\n\nJust tell me what you\'re experiencing.'
+        );
+        return;
+      }
+
+      // If unclear, re-ask
+      await message.reply('Do you want to go to hospital? Please reply "yes" or "no".');
+      return;
+    }
+
+    // Fast-path for obviously serious incidents to reduce chat delay.
+    if (this.detectLikelyEmergency(text) && session.step !== 'awaiting_location') {
+      this.sessions.set(from, {
+        step: 'awaiting_location',
+        sessionId: session.sessionId,
+        locationPromptSent: true,
+        distressMessage: text,
+        imageSeverity: session.imageSeverity,
+        imageReasoning: session.imageReasoning,
+        imageConfidence: session.imageConfidence,
+        messages: [...(session.messages ?? []), { role: 'user', content: text }],
+        triage: {
+          severity: 'urgent',
+          confidenceScore: 0.72,
+          reasoning: 'Emergency red-flag pattern detected from message.',
+        },
+      });
+
+      await message.reply(
+        '🚨 Emergency detected. Share live location pin now (📎 → Location). ' +
+        'If pin fails, send {"lat":18.5204,"lng":73.8567}.',
+      );
+      return;
+    }
+
+    // If it's an assistance/question intent, go straight to conversational mode
+    if (session.step === 'idle' && this.detectAssistanceIntent(text)) {
+      const convo = [...(session.messages ?? []), { role: 'user', content: text }];
+      this.sessions.set(from, {
+        step: 'chatting',
+        sessionId: session.sessionId,
+        messages: convo,
+        imageSeverity: session.imageSeverity,
+        imageReasoning: session.imageReasoning,
+        imageConfidence: session.imageConfidence,
+      });
+
+      try {
+        const baseUrl = this.getBaseUrl();
+        const res = await fetch(`${baseUrl}/api/clearpath/converse`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ messages: convo, sessionId: session.sessionId, channel: 'whatsapp' }),
+        });
+
+        if (res.ok) {
+          const payload = await res.json();
+          const reply = String(payload?.reply || 'How can I help you?');
+          convo.push({ role: 'assistant', content: reply });
+          this.sessions.set(from, { ...session, step: 'chatting', messages: convo });
+          await message.reply(reply);
+        } else {
+          await message.reply('Sure, I\'m here to help! Tell me more about what you need.');
+        }
+      } catch (err) {
+        console.error('[WA] assistance intent converse failed', err);
+        await message.reply('Sure, I\'m here to help! What do you need assistance with?');
+      }
+      return;
+    }
+
+    // If it's a serious issue but not emergency, ask about hospital
+    if (session.step === 'idle' && this.detectSeriousIssue(text)) {
+      this.sessions.set(from, {
+        step: 'awaiting_hospital_decision',
+        sessionId: session.sessionId,
+        distressMessage: text,
+        imageSeverity: session.imageSeverity,
+        imageReasoning: session.imageReasoning,
+        imageConfidence: session.imageConfidence,
+        messages: [...(session.messages ?? []), { role: 'user', content: text }],
+      });
+
+      await message.reply(
+        `I understand you're experiencing: ${text}\n\n` +
+        'Does this feel like something that needs immediate hospital care? Reply "yes" or "no".'
+      );
+      return;
+    }
+
+    // Default: general query → conversational mode
+    if (session.step === 'idle') {
+      const convo = [...(session.messages ?? []), { role: 'user', content: text }];
+      this.sessions.set(from, {
+        step: 'chatting',
+        sessionId: session.sessionId,
+        messages: convo,
+        imageSeverity: session.imageSeverity,
+        imageReasoning: session.imageReasoning,
+        imageConfidence: session.imageConfidence,
+      });
+
+      try {
+        const baseUrl = this.getBaseUrl();
+        const res = await fetch(`${baseUrl}/api/clearpath/converse`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ messages: convo, sessionId: session.sessionId, channel: 'whatsapp' }),
+        });
+
+        if (res.ok) {
+          const payload = await res.json();
+          const reply = String(payload?.reply || 'How can I help you?');
+          convo.push({ role: 'assistant', content: reply });
+          this.sessions.set(from, { ...session, step: 'chatting', messages: convo });
+          await message.reply(reply);
+        } else {
+          await message.reply('I\'m here to help. Tell me what\'s on your mind.');
+        }
+      } catch (err) {
+        console.error('[WA] general query converse failed', err);
+        await message.reply('I\'m here to help. What can I do for you?');
+      }
+      return;
+    }
+
+    // Handle continuing conversation in 'chatting' state
+    if (session.step === 'chatting') {
+      const convo = session.messages ?? [];
+      convo.push({ role: 'user', content: text });
+
+      try {
+        const baseUrl = this.getBaseUrl();
+        const res = await fetch(`${baseUrl}/api/clearpath/converse`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ messages: convo, sessionId: session.sessionId, channel: 'whatsapp' }),
+        });
+
+        if (res.ok) {
+          const payload = await res.json();
+          const reply = String(payload?.reply || 'How can I help further?');
+          convo.push({ role: 'assistant', content: reply });
+          this.sessions.set(from, { ...session, messages: convo });
+          await message.reply(reply);
+        } else {
+          await message.reply('I\'m still here to help. Tell me what else I can assist with.');
+        }
+      } catch (err) {
+        console.error('[WA] continuing chat failed', err);
+        await message.reply('Let me help. Tell me more.');
+      }
+      return;
+    }
+
+    // Fallback: if somehow we get here, treat as general query
+    const fallbackConvo = session.messages ?? [];
+    fallbackConvo.push({ role: 'user', content: text });
 
     try {
       const baseUrl = this.getBaseUrl();
       const res = await fetch(`${baseUrl}/api/clearpath/converse`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ messages: convo, sessionId: session.sessionId, channel: 'whatsapp' }),
+        body: JSON.stringify({ messages: fallbackConvo, sessionId: session.sessionId, channel: 'whatsapp' }),
       });
 
-      if (!res.ok) {
-        throw new Error(`Converse API ${res.status}`);
-      }
-
-      const payload = await res.json();
-      const reply = String(payload?.reply || 'Please share what happened and your symptoms.');
-      const triage = payload?.triage;
-      const intentMode = String(payload?.intent?.mode || 'triage_and_route');
-      const sessionId = typeof payload?.sessionId === 'string' ? payload.sessionId : session.sessionId;
-
-      convo.push({ role: 'assistant', content: reply });
-
-      if (intentMode === 'assist_only') {
-        this.sessions.set(from, {
-          step: 'chatting',
-          sessionId,
-          distressMessage: session.distressMessage,
-          imageSeverity: session.imageSeverity,
-          imageReasoning: session.imageReasoning,
-          imageConfidence: session.imageConfidence,
-          messages: convo,
-        });
-
+      if (res.ok) {
+        const payload = await res.json();
+        const reply = String(payload?.reply || 'How can I help?');
+        fallbackConvo.push({ role: 'assistant', content: reply });
+        this.sessions.set(from, { ...session, step: 'chatting', messages: fallbackConvo });
         await message.reply(reply);
-        return;
+      } else {
+        await message.reply('I\'m here to help.');
       }
-
-      if (triage?.severity) {
-        const mergedMessage = convo
-          .filter((m) => m.role === 'user')
-          .map((m) => m.content)
-          .join(' | ')
-          .slice(0, 600);
-
-        this.sessions.set(from, {
-          step: 'awaiting_location',
-          sessionId,
-          distressMessage: mergedMessage,
-          imageSeverity: session.imageSeverity,
-          imageReasoning: session.imageReasoning,
-          imageConfidence: session.imageConfidence,
-          messages: convo,
-          triage,
-        });
-
-        await message.reply(
-          `${reply}\n\n` +
-          `Triage: *${String(triage.severity).toUpperCase()}*` +
-          `${triage?.confidenceScore ? ` (confidence ${Math.round(Number(triage.confidenceScore) * 100)}%)` : ''}\n` +
-          `Reason: ${triage?.reasoning || 'Emergency pattern detected.'}\n\n` +
-          'Now please share your current location (📎 → Location) so I can route you to the best hospital immediately.'
-        );
-        return;
-      }
-
-      this.sessions.set(from, {
-        step: 'chatting',
-        sessionId,
-        distressMessage: session.distressMessage,
-        imageSeverity: session.imageSeverity,
-        imageReasoning: session.imageReasoning,
-        imageConfidence: session.imageConfidence,
-        messages: convo,
-      });
-
-      await message.reply(reply);
     } catch (err) {
-      console.error('[WA] conversational triage failed', err);
-      this.sessions.set(from, {
-        step: 'awaiting_location',
-        sessionId: session.sessionId,
-        distressMessage: text,
-        imageSeverity: session.imageSeverity,
-        imageReasoning: session.imageReasoning,
-        imageConfidence: session.imageConfidence,
-        messages: convo,
-      });
-      await message.reply('I understood enough to route emergency support. Please share your current location now. 📍');
+      console.error('[WA] fallback converse failed', err);
+      await message.reply('Tell me what you need.');
     }
   }
 
@@ -359,84 +702,17 @@ export class WhatsappBot {
       return;
     }
 
-    if (!session || session.step !== 'awaiting_location' || !session.distressMessage) {
-      await message.reply('We received your location! However, we need to know your medical emergency. Please text us your symptoms first. 🚨');
-      return;
-    }
-
-    // Hit the case API
-    await message.reply('Location received. AI Triage is running to find the best hospital... 🏃‍♂️🚑');
-
     try {
-      const baseUrl = this.getBaseUrl();
-      const city = await this.detectCity(loc.latitude, loc.longitude);
-      const res = await fetch(`${baseUrl}/api/cases`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          message: session.distressMessage,
-          userLat: loc.latitude,
-          userLng: loc.longitude,
-          city,
-          imageSeverity: session.imageSeverity,
-        }),
-      });
+      const safeSession = session?.step === 'awaiting_location'
+        ? session
+        : {
+            step: 'awaiting_location',
+            distressMessage: this.getLatestUserMessage(session?.messages) || 'Emergency case reported via WhatsApp location pin.',
+            imageSeverity: session?.imageSeverity,
+            messages: session?.messages,
+          };
 
-      if (!res.ok) throw new Error(`API Error: ${await res.text()}`);
-      const caseData = await res.json();
-
-      const fullCaseRes = await fetch(`${baseUrl}/api/cases?id=${encodeURIComponent(caseData.caseId)}`);
-      const fullCase = fullCaseRes.ok ? await fullCaseRes.json() : null;
-      const triageReason = String(fullCase?.triage?.reasoning || 'Live emergency triage and routing constraints selected this destination.');
-      const status = String(fullCase?.status || 'awaiting_hospital_ack');
-      let policeNotificationSent = false;
-
-      // Police/traffic notification is only triggered for serious accident images.
-      if (session.imageSeverity === 'high') {
-        const baselineEtaMinutes = Math.max(8, Number(caseData?.drivingTimeMinutes || 15));
-        const currentEtaMinutes = baselineEtaMinutes + 12;
-
-        const policeRes = await fetch(`${baseUrl}/api/alerts/police-traffic`, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            caseId: caseData.caseId,
-            roadClosureReported: true,
-            baselineEtaMinutes,
-            currentEtaMinutes,
-          }),
-        });
-
-        const policePayload = policeRes.ok ? await policeRes.json().catch(() => ({})) : {};
-        policeNotificationSent = Boolean(policePayload?.triggered);
-      }
-      
-      this.sessions.delete(from);
-      const sevDesc = caseData.severity.toUpperCase();
-      const emoji = caseData.severity === 'critical' ? '🚨' : caseData.severity === 'urgent' ? '⚠️' : '🏥';
-
-      await message.reply(
-        `${emoji} *${sevDesc} CASE DETECTED*\n` +
-        `━━━━━━━━━━━━━━━\n` +
-        `🏥 *Hospital:* ${caseData.hospital}\n` +
-        `⏱️ *ETA:* ~${caseData.drivingTimeMinutes} min drive\n\n` +
-        `🧠 *Why this hospital:* ${triageReason}\n` +
-        `📌 *Current status:* ${status.replaceAll('_', ' ')}\n\n` +
-        (policeNotificationSent ? `🚓 *Police/traffic corridor support notified* for this severe scene.\n\n` : '') +
-        `📍 *Open your Live Tracking Dashboard:*\n` +
-        `${caseData.caseUrl}\n\n` +
-        `_Ambulance dispatch notified. I will message you here if rerouted or status changes._`
-      );
-
-      this.caseSubscriptions.set(caseData.caseId, {
-        chatId: from,
-        city: String(fullCase?.city || city),
-        lastStatus: status,
-        lastHospitalName: String(fullCase?.assignedHospital?.hospital?.name || caseData.hospital),
-        lastTimelineCount: Array.isArray(fullCase?.timeline) ? fullCase.timeline.length : 0,
-        hadActiveIncident: false,
-      });
-
+      await this.routeCaseFromCoordinates(from, loc.latitude, loc.longitude, safeSession, (content) => message.reply(content));
     } catch (err: any) {
       console.error('[WA] Routing failed', err);
       await message.reply('Sorry, our routing engine is currently experiencing issues. Please call 112 immediately.');
@@ -550,6 +826,7 @@ export class WhatsappBot {
       const highConfidenceScene = severity === 'high' && Number(confidence || 0) >= 0.72;
       if (highConfidenceScene) {
         session.step = 'awaiting_location';
+        session.locationPromptSent = true;
         session.distressMessage = `Severe accident scene detected from image. ${String(reasoning || '')}`.trim();
       }
 

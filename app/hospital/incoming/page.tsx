@@ -111,7 +111,11 @@ export default function HospitalIncomingPage() {
                 <tbody>
                   {cases.map((c) => (
                     <tr key={c.caseId} className="border-t border-slate-100">
-                      <td className="px-3 py-2 font-semibold text-slate-800">{c.caseId}</td>
+                      <td className="px-3 py-2 font-semibold text-slate-800">
+                        <a href={`/case/${c.caseId}`} className="text-blue-600 hover:text-blue-800 underline">
+                          {c.caseId}
+                        </a>
+                      </td>
                       <td className="px-3 py-2">{c.severity}</td>
                       <td className="px-3 py-2">{c.status}</td>
                       <td className="px-3 py-2">{c.hospitalAckStatus}</td>

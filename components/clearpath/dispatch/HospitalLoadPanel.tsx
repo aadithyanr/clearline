@@ -35,8 +35,8 @@ export default function HospitalLoadPanel({ hospitals, congestion }: { hospitals
     <div className="civ-panel w-full sm:w-[350px] max-h-[50vh] flex flex-col pointer-events-auto mt-4 ml-4">
       <div className="civ-header !mb-3 !pb-3">
         <div>
-          <h2 className="civ-header-title text-[1rem]">Network Load</h2>
-          <p className="civ-header-sub text-[0.8rem]">Current hospital occupancy</p>
+          <h2 className="civ-header-title text-[1rem]">Incident Scenarios</h2>
+          <p className="civ-header-sub text-[0.8rem]">Select a case for case-specific scenarios</p>
         </div>
       </div>
       <div className="civ-body flex flex-col gap-3 overflow-y-auto pr-2">
