@@ -123,8 +123,7 @@ function satisfiesConstraints(
 }
 
 function isLevel1TraumaCenter(hospital: any): boolean {
-  if (hospital?.isLevel1TraumaCenter === true) return true;
-  return hospital?.specialties?.includes('trauma') === true;
+  return hospital?.isLevel1TraumaCenter === true;
 }
 
 export async function scoreAndRankHospitals(
@@ -149,8 +148,11 @@ export async function scoreAndRankHospitals(
     sceneSeverityOverrideActive = true;
     filteredHospitals = hospitals.filter((h) => isLevel1TraumaCenter(h));
     if (filteredHospitals.length === 0) {
-      // Fallback to all if no eligible Level-1 centers are available in current dataset.
-      filteredHospitals = hospitals;
+      // Compatibility fallback for older datasets before Level-1 flags are backfilled.
+      filteredHospitals = hospitals.filter((h) => h.specialties?.includes('trauma'));
+      if (filteredHospitals.length === 0) {
+        filteredHospitals = hospitals;
+      }
     }
   }
 

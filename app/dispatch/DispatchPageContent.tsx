@@ -9,6 +9,31 @@ import type { EmergencyCase } from '@/lib/clearpath/caseTypes';
 import type { RoutingConstraints, ScoredHospital } from '@/lib/clearpath/types';
 import { CITIES } from '@/lib/map-3d/cities';
 
+type MonitorEvent = {
+  type: 'closure_detected' | 'reroute_alert' | 'coordination_triggered' | 'triage_escalated';
+  caseId: string;
+  ts: number;
+  reason: string;
+  etaDriftMinutes?: number;
+  coordination?: {
+    channel: 'traffic' | 'police_and_traffic';
+    severity: 'critical' | 'urgent' | 'non-urgent';
+    baselineEtaMinutes?: number;
+    currentEtaMinutes?: number;
+  };
+  triageEscalation?: {
+    severity: 'critical' | 'urgent' | 'non-urgent';
+    confidenceScore: number;
+    escalationLevel: 'dispatch_supervisor' | 'medical_director';
+  };
+};
+
+type CongestionSnapshot = {
+  hospitalId: string;
+  waitMinutes?: number;
+  occupancyPct?: number;
+};
+
 const fetcher = (url: string) => fetch(url).then(res => res.json());
 
 export default function DispatchPageContent() {
@@ -22,6 +47,7 @@ export default function DispatchPageContent() {
   });
   const [routeOptions, setRouteOptions] = useState<{ recommended: ScoredHospital; alternatives: ScoredHospital[] } | null>(null);
   const [routeOptionsLoading, setRouteOptionsLoading] = useState(false);
+  const [monitorEvents, setMonitorEvents] = useState<MonitorEvent[]>([]);
 
   // Poll for active cases
   const { data: casesData, mutate } = useSWR('/api/dispatch/cases', fetcher, {
@@ -40,7 +66,7 @@ export default function DispatchPageContent() {
   });
 
   const hospitals = hospData || [];
-  const congestion = congData || [];
+  const congestion = (congData || []) as CongestionSnapshot[];
 
   // Update selected case if it changed in the background
   useEffect(() => {
@@ -67,13 +93,40 @@ export default function DispatchPageContent() {
       }
     };
 
+    const onMonitorEvent = (event: MessageEvent) => {
+      try {
+        const payload = JSON.parse(event.data) as MonitorEvent;
+        if (!payload?.caseId || !payload?.type) return;
+
+        setMonitorEvents((prev) => {
+          const next = [payload, ...prev];
+          return next.slice(0, 25);
+        });
+
+        // When a reroute is emitted, force a fresh fetch to sync case assignment quickly.
+        if (payload.type === 'reroute_alert') {
+          void mutate();
+        }
+      } catch {
+        // ignore malformed events
+      }
+    };
+
     eventSource.addEventListener('cases', onCases as EventListener);
+    eventSource.addEventListener('closure_detected', onMonitorEvent as EventListener);
+    eventSource.addEventListener('reroute_alert', onMonitorEvent as EventListener);
+    eventSource.addEventListener('coordination_triggered', onMonitorEvent as EventListener);
+    eventSource.addEventListener('triage_escalated', onMonitorEvent as EventListener);
     eventSource.onerror = () => {
       eventSource.close();
     };
 
     return () => {
       eventSource.removeEventListener('cases', onCases as EventListener);
+      eventSource.removeEventListener('closure_detected', onMonitorEvent as EventListener);
+      eventSource.removeEventListener('reroute_alert', onMonitorEvent as EventListener);
+      eventSource.removeEventListener('coordination_triggered', onMonitorEvent as EventListener);
+      eventSource.removeEventListener('triage_escalated', onMonitorEvent as EventListener);
       eventSource.close();
     };
   }, [mutate]);
@@ -116,7 +169,7 @@ export default function DispatchPageContent() {
     };
   }, [selectedCase?.caseId, constraints]);
 
-  async function handleOverride(caseId: string, newHospital: any) {
+  async function handleOverride(caseId: string, newHospital: ScoredHospital) {
     try {
       const res = await fetch(`/api/dispatch/cases/${caseId}/override`, {
         method: 'POST',
@@ -171,6 +224,88 @@ export default function DispatchPageContent() {
     }
   }
 
+  async function handleMonitorPing(
+    caseId: string,
+    baselineEtaMinutes?: number,
+    currentEtaMinutes?: number,
+    roadClosureReported?: boolean,
+  ) {
+    try {
+      const res = await fetch(`/api/dispatch/cases/${caseId}/monitor/ping`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          baselineEtaMinutes,
+          currentEtaMinutes,
+          roadClosureReported,
+        }),
+      });
+
+      const payload = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        throw new Error(payload?.error || 'Monitor ping failed');
+      }
+
+      if (payload?.rerouted) {
+        await mutate();
+      }
+
+      return payload;
+    } catch (err) {
+      console.error('Failed to run monitor ping', err);
+      throw err;
+    }
+  }
+
+  useEffect(() => {
+    let cancelled = false;
+
+    const runAutoMonitor = async () => {
+      const enRouteCases = (cases as EmergencyCase[]).filter((c) => c.status === 'en_route');
+      if (!enRouteCases.length) return;
+
+      let rerouteTriggered = false;
+
+      for (const c of enRouteCases) {
+        if (cancelled) return;
+
+        const assignedHospitalId = c.assignedHospital?.hospital?.id;
+        const baselineEta = Number(c.assignedHospital?.totalEstimatedMinutes ?? 0);
+
+        if (!assignedHospitalId || !baselineEta) continue;
+
+        const congestionSnapshot = congestion.find((snap) => snap.hospitalId === assignedHospitalId);
+        const liveWait = Number(congestionSnapshot?.waitMinutes ?? c.assignedHospital?.waitMinutes ?? 0);
+        const drivingEta = Number(c.assignedHospital?.drivingTimeMinutes ?? 0);
+        const currentEta = Math.max(1, Math.round(drivingEta + liveWait));
+
+        try {
+          const result = await handleMonitorPing(c.caseId, baselineEta, currentEta, false);
+          if (result?.rerouted) {
+            rerouteTriggered = true;
+          }
+        } catch {
+          // Continue monitoring other cases even if one ping fails.
+        }
+      }
+
+      if (rerouteTriggered && !cancelled) {
+        await mutate();
+      }
+    };
+
+    // Immediate pass, then interval for continuous monitoring.
+    void runAutoMonitor();
+    const id = setInterval(() => {
+      void runAutoMonitor();
+    }, 20000);
+
+    return () => {
+      cancelled = true;
+      clearInterval(id);
+    };
+  }, [cases, congestion, mutate]);
+
   // Create a pseudo 'RouteRecommendation' object for ClearPathMap to draw routes
   // if a specific case is selected, so dispatchers see the literal route the ambulance is taking.
   const recommendedHospital = selectedCase ? {
@@ -220,10 +355,12 @@ export default function DispatchPageContent() {
             routeOptions={routeOptions}
             routeOptionsLoading={routeOptionsLoading}
             selectedCaseId={selectedCase?.caseId}
+            monitorEvents={monitorEvents}
             onCaseSelect={setSelectedCase}
             onOverrideSubmit={handleOverride}
             onHospitalAck={handleHospitalAck}
             onHospitalReject={handleHospitalReject}
+            onMonitorPing={handleMonitorPing}
           />
         </div>
 

@@ -1,4 +1,4 @@
-import { WhatsappBot } from '../lib/whatsappBot';
+import { WhatsappBot } from '../lib/whatsappBot.ts';
 
 (async () => {
   console.log('Starting Clearline WhatsApp bot...');

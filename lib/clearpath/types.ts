@@ -65,6 +65,8 @@ export interface TriageRequest {
 export interface TriageResponse {
   severity: 'critical' | 'urgent' | 'non-urgent';
   reasoning: string;
+  confidenceScore?: number;
+  escalationRecommended?: boolean;
 }
 
 export interface RouteRequest {
@@ -107,7 +109,7 @@ export interface ScoredHospital {
   distanceKm: number;
   occupancyPct: number;
   specialtyMatch: boolean;
-  routeGeometry: any;
+  routeGeometry: unknown;
   congestionSegments?: string[];
   totalEstimatedMinutes: number;
   reason: string;

@@ -10,6 +10,7 @@ const SYSTEM_PROMPT = `You are an emergency medical triage AI. A patient or byst
 Your job is to output ONLY a JSON object (no markdown, no explanation) with these fields:
 {
   "severity": "critical" | "urgent" | "non-urgent",
+  "confidenceScore": number,   // 0.0 to 1.0 confidence in this severity
   "predictedNeeds": string[],  // e.g. ["ICU", "ventilator", "cardiac", "neurosurgeon", "trauma", "general"]
   "reasoning": string,          // one sentence explaining the triage decision
   "suggestedAction": string     // one sentence for the patient e.g. "We are routing an ambulance to the nearest cardiac centre."
@@ -24,6 +25,12 @@ predictedNeeds options (pick all that apply):
 ICU, ventilator, cardiac, neurosurgeon, trauma, burns, paediatrics, obstetrics, ophthalmology, dialysis, general
 
 Output ONLY the JSON. No code fences.`;
+
+function normalizeConfidenceScore(value: unknown): number {
+  const raw = Number(value);
+  if (!Number.isFinite(raw)) return 0.65;
+  return Math.max(0.05, Math.min(0.99, Number(raw.toFixed(2))));
+}
 
 export async function POST(req: NextRequest) {
   try {
@@ -67,18 +74,21 @@ export async function POST(req: NextRequest) {
     if (!raw.startsWith('{')) raw = '{"severity":' + raw;
 
     const parsed = JSON.parse(raw);
+    const confidenceScore = normalizeConfidenceScore(parsed.confidenceScore);
 
     return NextResponse.json({
       severity: parsed.severity ?? 'urgent',
+      confidenceScore,
       predictedNeeds: parsed.predictedNeeds ?? ['general'],
       reasoning: parsed.reasoning ?? '',
       suggestedAction: parsed.suggestedAction ?? 'Routing you to the nearest emergency room.',
     });
-  } catch (err: any) {
+  } catch (err: unknown) {
     console.error('[triage]', err);
     // Safe fallback so the WhatsApp bot never crashes
     return NextResponse.json({
       severity: 'urgent',
+      confidenceScore: 0.5,
       predictedNeeds: ['general'],
       reasoning: 'Auto-triaged due to processing error.',
       suggestedAction: 'Routing you to the nearest emergency room.',

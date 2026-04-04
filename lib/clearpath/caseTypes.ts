@@ -2,6 +2,8 @@
 
 export interface TriageResult {
   severity: 'critical' | 'urgent' | 'non-urgent';
+  confidenceScore?: number;
+  escalationRecommended?: boolean;
   predictedNeeds: string[];
   reasoning: string;
   suggestedAction: string;
@@ -50,8 +52,8 @@ export interface EmergencyCase {
   patientMessage: string;          // original message (stored but shown safely)
   triage: TriageResult;
   userLocation: { lat: number; lng: number };
-  assignedHospital: any;           // ScoredHospital from routing engine
-  alternatives: any[];
+  assignedHospital: unknown;       // ScoredHospital from routing engine
+  alternatives: unknown[];
   status: CaseStatus;
   hospitalAck?: HospitalAckState;
   timeline: CaseTimeline[];

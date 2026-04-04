@@ -4,19 +4,66 @@ import { useState } from 'react';
 import type { EmergencyCase } from '@/lib/clearpath/caseTypes';
 import type { RoutingConstraints, ScoredHospital } from '@/lib/clearpath/types';
 
+type MonitorEvent = {
+  type: 'closure_detected' | 'reroute_alert' | 'coordination_triggered' | 'triage_escalated';
+  caseId: string;
+  ts: number;
+  reason: string;
+  etaDriftMinutes?: number;
+  coordination?: {
+    channel: 'traffic' | 'police_and_traffic';
+    severity: 'critical' | 'urgent' | 'non-urgent';
+    baselineEtaMinutes?: number;
+    currentEtaMinutes?: number;
+  };
+  triageEscalation?: {
+    severity: 'critical' | 'urgent' | 'non-urgent';
+    confidenceScore: number;
+    escalationLevel: 'dispatch_supervisor' | 'medical_director';
+  };
+};
+
+type HospitalSnapshot = {
+  id?: string;
+  _id?: { toString: () => string };
+  totalBeds?: number;
+  erBeds?: number;
+  specialties?: string[];
+};
+
+type CongestionSnapshot = {
+  hospitalId?: string;
+  waitMinutes?: number;
+  occupancyPct?: number;
+};
+
+type MonitorPingResult = {
+  rerouted?: boolean;
+  rerouteHospitalName?: string | null;
+  closureDetected?: boolean;
+  reason?: string;
+};
+
 interface DispatchSidebarProps {
   cases: EmergencyCase[];
-  hospitals: any[];
-  congestion: any[];
+  hospitals: HospitalSnapshot[];
+  congestion: CongestionSnapshot[];
   constraints: RoutingConstraints;
   onConstraintsChange: (next: RoutingConstraints) => void;
   routeOptions: { recommended: ScoredHospital; alternatives: ScoredHospital[] } | null;
   routeOptionsLoading?: boolean;
   selectedCaseId?: string | null;
+  monitorEvents?: MonitorEvent[];
   onCaseSelect: (c: EmergencyCase | null) => void;
   onOverrideSubmit: (caseId: string, newHospital: ScoredHospital) => Promise<void>;
   onHospitalAck: (caseId: string, hospitalId: string) => Promise<void>;
   onHospitalReject: (caseId: string, hospitalId: string) => Promise<void>;
+  onMonitorPing: (
+    caseId: string,
+    baselineEtaMinutes?: number,
+    currentEtaMinutes?: number,
+    roadClosureReported?: boolean,
+  ) => Promise<MonitorPingResult>;
 }
 
 export default function DispatchSidebar({
@@ -28,19 +75,26 @@ export default function DispatchSidebar({
   routeOptions,
   routeOptionsLoading,
   selectedCaseId,
+  monitorEvents,
   onCaseSelect,
   onOverrideSubmit,
   onHospitalAck,
   onHospitalReject,
+  onMonitorPing,
 }: DispatchSidebarProps) {
   const [isOverriding, setIsOverriding] = useState(false);
+  const [baselineEta, setBaselineEta] = useState(18);
+  const [currentEta, setCurrentEta] = useState(18);
+  const [roadClosure, setRoadClosure] = useState(false);
+  const [monitorBusy, setMonitorBusy] = useState(false);
+  const [monitorMessage, setMonitorMessage] = useState<string | null>(null);
 
   const selectedCase = cases.find(c => c.caseId === selectedCaseId);
 
   // Helper to extract rich bed info for a given hospital ID
   function getHospitalInfo(hospId: string) {
-    const h = hospitals.find(x => x.id === hospId || x._id?.toString() === hospId);
-    const c = congestion.find(x => x.hospitalId === hospId);
+    const h = hospitals.find((x) => x.id === hospId || x._id?.toString() === hospId);
+    const c = congestion.find((x) => x.hospitalId === hospId);
     if (!h) return null;
     const occ = c?.occupancyPct ?? 0;
     const totalBeds = h.totalBeds ?? 100;
@@ -86,8 +140,9 @@ export default function DispatchSidebar({
     }
   }
 
-  const visibleAlternatives = routeOptions?.alternatives ?? selectedCase?.alternatives ?? [];
+  const visibleAlternatives: ScoredHospital[] = routeOptions?.alternatives ?? (selectedCase?.alternatives as ScoredHospital[] ?? []);
   const recommendedOption = routeOptions?.recommended ?? null;
+  const activeMonitorEvents = (monitorEvents ?? []).filter((e) => !selectedCaseId || e.caseId === selectedCaseId).slice(0, 3);
 
   const scoreRows = selectedCase?.assignedHospital?.scoreBreakdown
     ? [
@@ -206,6 +261,41 @@ export default function DispatchSidebar({
         </label>
       </div>
 
+      {activeMonitorEvents.length > 0 && (
+        <div className="mb-3 rounded-xl border border-rose-200 bg-rose-50 p-3">
+          <p className="text-[0.62rem] font-bold uppercase tracking-widest text-rose-700 mb-2">Live Route Monitor</p>
+          <div className="flex flex-col gap-2">
+            {activeMonitorEvents.map((event, idx) => (
+              <div key={`${event.caseId}-${event.ts}-${idx}`} className="rounded-lg border border-rose-200 bg-white px-2 py-1.5">
+                <div className="flex items-center justify-between gap-2">
+                  <span className="text-[0.65rem] font-black uppercase tracking-wider text-rose-700">
+                    {event.type === 'closure_detected'
+                      ? 'Closure Detected'
+                      : event.type === 'triage_escalated'
+                        ? 'Triage Escalated'
+                      : event.type === 'coordination_triggered'
+                        ? 'Coordination Triggered'
+                        : 'Reroute Alert'}
+                  </span>
+                  <span className="text-[0.62rem] text-slate-500 font-semibold">{event.caseId}</span>
+                </div>
+                <p className="text-[0.7rem] text-slate-700 mt-1">{event.reason}</p>
+                {event.type === 'coordination_triggered' && event.coordination && (
+                  <p className="text-[0.62rem] text-rose-700 font-semibold mt-1">
+                    Channel: {event.coordination.channel.replaceAll('_', ' ')}
+                  </p>
+                )}
+                {event.type === 'triage_escalated' && event.triageEscalation && (
+                  <p className="text-[0.62rem] text-rose-700 font-semibold mt-1">
+                    Escalation: {event.triageEscalation.escalationLevel.replaceAll('_', ' ')} ({event.triageEscalation.confidenceScore})
+                  </p>
+                )}
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+
       <div className="flex-1 overflow-y-auto pr-2 pb-10 flex flex-col gap-3">
         {selectedCase ? (
           <div>
@@ -285,7 +375,7 @@ export default function DispatchSidebar({
 
             <div className="bg-slate-50 border border-slate-200 rounded-xl p-3 mb-4">
               <p className="text-[0.65rem] font-bold uppercase tracking-widest text-slate-400 mb-1">Reasoning</p>
-              <p className="text-sm text-slate-700 italic">"{selectedCase.triage.reasoning}"</p>
+              <p className="text-sm text-slate-700 italic">&quot;{selectedCase.triage.reasoning}&quot;</p>
               {selectedCase.triage.predictedNeeds?.length > 0 && (
                 <div className="mt-2 flex flex-wrap gap-1">
                   {selectedCase.triage.predictedNeeds.map((need: string) => (
@@ -347,7 +437,7 @@ export default function DispatchSidebar({
                 </div>
               )}
               <div className="flex flex-col gap-3">
-                {visibleAlternatives.map((alt: any) => {
+                {visibleAlternatives.map((alt) => {
                   const altInfo = getHospitalInfo(alt.hospital.id);
                   return (
                     <div key={alt.hospital.id} className="flex flex-col gap-2 border border-slate-200 hover:border-sky-300 transition-colors rounded-xl p-3 bg-white shadow-sm">
@@ -389,6 +479,79 @@ export default function DispatchSidebar({
               </div>
             </div>
 
+            <div className="mb-4 border-t border-slate-100 pt-4">
+              <h4 className="text-[0.8rem] font-bold uppercase tracking-widest text-slate-600 mb-3">Twist 2 Monitor Test</h4>
+              <div className="rounded-xl border border-slate-200 bg-slate-50 p-3">
+                <div className="grid grid-cols-2 gap-2 mb-2">
+                  <label className="text-[0.68rem] font-bold text-slate-600 uppercase tracking-wide">
+                    Baseline ETA
+                    <input
+                      type="number"
+                      min={1}
+                      value={baselineEta}
+                      onChange={(e) => setBaselineEta(Number(e.target.value || 0))}
+                      className="mt-1 w-full rounded border border-slate-300 bg-white px-2 py-1 text-[0.75rem]"
+                    />
+                  </label>
+                  <label className="text-[0.68rem] font-bold text-slate-600 uppercase tracking-wide">
+                    Current ETA
+                    <input
+                      type="number"
+                      min={1}
+                      value={currentEta}
+                      onChange={(e) => setCurrentEta(Number(e.target.value || 0))}
+                      className="mt-1 w-full rounded border border-slate-300 bg-white px-2 py-1 text-[0.75rem]"
+                    />
+                  </label>
+                </div>
+
+                <label className="flex items-center gap-2 text-[0.72rem] font-bold text-rose-700 uppercase tracking-wide mb-2">
+                  <input
+                    type="checkbox"
+                    checked={roadClosure}
+                    onChange={(e) => setRoadClosure(e.target.checked)}
+                  />
+                  Simulate Road Closure
+                </label>
+
+                <button
+                  onClick={async () => {
+                    if (!selectedCase) return;
+                    setMonitorBusy(true);
+                    setMonitorMessage(null);
+                    try {
+                      const result = await onMonitorPing(
+                        selectedCase.caseId,
+                        baselineEta,
+                        currentEta,
+                        roadClosure,
+                      );
+
+                      if (result?.rerouted) {
+                        setMonitorMessage(`Auto-rerouted to ${result.rerouteHospitalName ?? 'fallback hospital'}`);
+                      } else if (result?.closureDetected) {
+                        setMonitorMessage(`Closure detected (${result.reason}) but no reroute candidate found`);
+                      } else {
+                        setMonitorMessage('No closure trigger detected');
+                      }
+                    } catch {
+                      setMonitorMessage('Monitor ping failed');
+                    } finally {
+                      setMonitorBusy(false);
+                    }
+                  }}
+                  disabled={monitorBusy}
+                  className="w-full text-[0.72rem] font-bold uppercase tracking-wide bg-rose-100 hover:bg-rose-200 text-rose-800 border border-rose-300 px-2 py-1.5 rounded-lg"
+                >
+                  {monitorBusy ? 'Checking...' : 'Run Monitor Ping'}
+                </button>
+
+                {monitorMessage && (
+                  <p className="mt-2 text-[0.72rem] text-slate-700 font-semibold">{monitorMessage}</p>
+                )}
+              </div>
+            </div>
+
           </div>
         ) : (
           cases.map(c => (
@@ -416,7 +579,7 @@ export default function DispatchSidebar({
                   {new Date(c.createdAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
                 </div>
               </div>
-              <p className="text-[0.75rem] text-slate-600 line-clamp-1 mb-2">"{c.patientMessage}"</p>
+              <p className="text-[0.75rem] text-slate-600 line-clamp-1 mb-2">&quot;{c.patientMessage}&quot;</p>
               <div className="flex justify-between items-end border-t border-slate-100 pt-2">
                 <span className="text-[0.7rem] font-bold text-sky-700">&rarr; {c.assignedHospital?.hospital?.name}</span>
                 <span className="text-[0.8rem] font-bold text-slate-800 bg-slate-100 px-1.5 rounded">{c.assignedHospital?.totalEstimatedMinutes}m</span>

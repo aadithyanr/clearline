@@ -7,8 +7,9 @@
     "build": "next build",
     "start": "next start",
     "lint": "eslint",
-    "bot": "ts-node --esm --project tsconfig.json scripts/runWhatsappBot.ts",
-    "bot:dev": "ts-node --esm --project tsconfig.json --watch scripts/runWhatsappBot.ts"
+    "bot": "tsx scripts/runWhatsappBot.ts",
+    "bot:dev": "tsx watch scripts/runWhatsappBot.ts",
+    "backfill:level1": "ts-node --esm --project tsconfig.json scripts/backfillLevel1TraumaFlag.ts"
   },
   "dependencies": {
     "@google/generative-ai": "^0.24.1",
@@ -48,6 +49,7 @@
     "eslint-config-next": "16.2.2",
     "tailwindcss": "^4",
     "ts-node": "^10.9.2",
+    "tsx": "^4.21.0",
     "typescript": "^5"
   }
 }

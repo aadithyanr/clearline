@@ -3908,8 +3908,25 @@ async function seed() {
     await client.connect();
     const db = client.db('clearpath');
 
+    const hospitalsWithCapabilities = hospitals.map((hospital: any) => {
+      const specialties = Array.isArray(hospital.specialties) ? hospital.specialties : [];
+      const name = String(hospital.name || '').toLowerCase();
+      const erBeds = Number(hospital.erBeds || 0);
+      const totalBeds = Number(hospital.totalBeds || 0);
+
+      const isLevel1TraumaCenter =
+        specialties.includes('trauma') ||
+        name.includes('trauma center') ||
+        (erBeds >= 30 && totalBeds >= 250);
+
+      return {
+        ...hospital,
+        isLevel1TraumaCenter,
+      };
+    });
+
     await db.collection('hospitals').deleteMany({});
-    const result = await db.collection('hospitals').insertMany(hospitals);
+    const result = await db.collection('hospitals').insertMany(hospitalsWithCapabilities);
     console.log(`Inserted ${result.insertedCount} hospitals`);
 
     const count = await db.collection('hospitals').countDocuments();

@@ -25,6 +25,7 @@ interface VoiceTriageProps {
 
 export default function VoiceTriage({ onTriageComplete }: VoiceTriageProps) {
   const [messages, setMessages] = useState<Message[]>([]);
+  const [sessionId, setSessionId] = useState<string | null>(null);
   const [isListening, setIsListening] = useState(false);
   const [isSpeaking, setIsSpeaking] = useState(false);
   const [isThinking, setIsThinking] = useState(false);
@@ -216,12 +217,15 @@ export default function VoiceTriage({ onTriageComplete }: VoiceTriageProps) {
       const res = await fetch('/api/clearpath/converse', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ messages: newMessages }),
+        body: JSON.stringify({ messages: newMessages, sessionId, channel: 'web' }),
       });
 
       if (!res.ok) throw new Error('Conversation failed');
 
       const data = await res.json();
+      if (typeof data?.sessionId === 'string') {
+        setSessionId(data.sessionId);
+      }
       const assistantMsg: Message = { role: 'assistant', content: data.reply };
       const updatedMessages = [...newMessages, assistantMsg];
       setMessages(updatedMessages);
@@ -243,7 +247,7 @@ export default function VoiceTriage({ onTriageComplete }: VoiceTriageProps) {
     } finally {
       isConverseInFlightRef.current = false;
     }
-  }, [speakText, onTriageComplete]);
+  }, [speakText, onTriageComplete, sessionId]);
 
   const startListening = useCallback(async () => {
     setError(null);

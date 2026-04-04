@@ -1,5 +1,6 @@
 import { NextRequest } from 'next/server';
 import { readLiveCases } from '@/lib/clearpath/caseStore';
+import { readRecentMonitorEvents } from '@/lib/clearpath/routeMonitorService';
 
 export const dynamic = 'force-dynamic';
 export const maxDuration = 300;
@@ -9,11 +10,23 @@ const encoder = new TextEncoder();
 export async function GET(req: NextRequest) {
   const stream = new ReadableStream({
     async start(controller) {
+      let lastEventTs = 0;
+
       const pushCases = async () => {
         const cases = await readLiveCases();
         controller.enqueue(
           encoder.encode(`event: cases\ndata: ${JSON.stringify({ cases, ts: Date.now() })}\n\n`),
         );
+
+        const monitorEvents = await readRecentMonitorEvents(lastEventTs);
+        for (const event of monitorEvents) {
+          if (event.ts > lastEventTs) {
+            lastEventTs = event.ts;
+          }
+          controller.enqueue(
+            encoder.encode(`event: ${event.type}\ndata: ${JSON.stringify(event)}\n\n`),
+          );
+        }
       };
 
       await pushCases();
