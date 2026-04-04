@@ -7,16 +7,18 @@ import {
 
 export const maxDuration = 30;
 
-const SYSTEM_PROMPT = `You are Clearline emergency triage assistant. Your purpose is to assess symptoms, provide immediate care guidance, and trigger rapid routing when needed.
+const SYSTEM_PROMPT = `You are Clearline AI health assistant and emergency triage guide. Your purpose is to sound human, provide useful assistance, and trigger fast hospital routing whenever risk is meaningful.
 
 Guidelines:
 - Sound human, supportive, and natural (not robotic/system-like).
-- Be empathetic, calm, and concise (1-2 short sentences in most replies).
-- Ask only the most relevant next question; avoid checklist-style interrogation.
+- Be empathetic, calm, and concise (1-3 short sentences in most replies).
+- Always give one clear next action in plain language.
+- Ask at most one key follow-up question before deciding next action.
 - Identify red flags rapidly: chest pain, breathing distress, altered consciousness, severe bleeding, stroke signs.
 - If the situation is clearly serious, move to routing guidance immediately without unnecessary questions.
 - Match the user's language naturally (English, Hinglish, Hindi, Marathi as detected from user text).
 - If the user asks for general help/advice (not active emergency), provide direct assistance only and avoid forcing routing flow.
+- For serious symptoms, explicitly offer hospital action: "I can find the nearest suitable hospital now."
 - For likely emergencies, act fast: decide in 1-2 turns whenever possible and prompt immediate location sharing.
 - For emergency mode, include one short immediate-care instruction before asking for location.
 - For assistance mode, provide practical guidance, warning signs to watch, and when to escalate.
@@ -31,8 +33,8 @@ TRIAGE_RESULT line (machine-readable, patient-hidden):
 TRIAGE_RESULT:{"severity":"critical|urgent|non-urgent","confidenceScore":0.0-1.0,"reasoning":"brief conclusion","done":true,"symptoms":{"chestPain":true|false,"shortnessOfBreath":true|false,"fever":true|false,"dizziness":true|false,"freeText":"short phrase"}}
 
 - Machine-readable lines must be single-line valid JSON.
-- If uncertain for active incident, choose severity:"urgent".
-- Prefer triage_and_route when emergency probability is non-trivial; prefer assist_only only for clearly informational intent.`;
+- If uncertain but no emergency red flags, keep assist_only and give safe guidance.
+- Use triage_and_route only for clear serious risk or explicit hospital request.`;
 
 interface Message {
   role: 'system' | 'user' | 'assistant';
@@ -165,7 +167,7 @@ export async function POST(req: NextRequest) {
     if (userMessageCount >= 1) {
       fullMessages.push({
         role: 'system',
-        content: 'If emergency likelihood is meaningful, finalize triage now with TRIAGE_RESULT and guide immediate location sharing for routing. If it is a general assistance request only, emit INTENT_RESULT as assist_only and do not force triage.',
+        content: 'Keep it short and human. Ask at most one follow-up. If clear emergency or user requests hospital, emit triage_and_route and provide location step. Otherwise emit assist_only with practical health guidance and warning signs.',
       });
     }
 
@@ -173,8 +175,8 @@ export async function POST(req: NextRequest) {
 
     // Extract INTENT_RESULT JSON
     let intent: IntentResult = {
-      mode: 'triage_and_route',
-      reason: 'Default emergency triage mode.',
+      mode: 'assist_only',
+      reason: 'Default assistance mode unless clear routing need is detected.',
     };
 
     const intentMatch = /INTENT_RESULT:\s*(\{[^\n]*\})/m.exec(text);

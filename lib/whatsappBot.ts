@@ -58,13 +58,22 @@ export class WhatsappBot {
     return assistSignals.some((s) => t.includes(s));
   }
 
+  detectHospitalIntent(text: string) {
+    const t = text.toLowerCase();
+    const hospitalSignals = [
+      'hospital', 'ambulance', 'admit', 'admission', 'er', 'emergency room',
+      'take me hospital', 'need hospital', 'find hospital', 'nearest hospital',
+    ];
+    return hospitalSignals.some((s) => t.includes(s));
+  }
+
   detectSeriousIssue(text: string) {
     const t = text.toLowerCase();
-    // Keywords indicating a serious health issue (not just a question)
+    // Keep this focused to avoid asking hospital/location for normal queries.
     const seriousSignals = [
-      'happening', 'is happening', 'experiencing', 'have', 'getting', 'started',
-      'feeling', 'pain', 'hurt', 'accident', 'fell', 'injured', 'problem',
-      'sick', 'fever', 'vomit', 'dizziness', 'numbness', 'weakness',
+      'severe pain', 'very high fever', 'fainting', 'passed out', 'confusion',
+      'persistent vomiting', 'blood in vomit', 'numbness one side', 'slurred speech',
+      'accident', 'fell down', 'injured badly', 'fracture',
     ];
     return seriousSignals.some((s) => t.includes(s));
   }
@@ -300,7 +309,7 @@ export class WhatsappBot {
 
   // State machine per user phone number
   sessions = new Map<string, {
-    step: 'idle' | 'chatting' | 'awaiting_location';
+    step: 'idle' | 'chatting' | 'awaiting_location' | 'awaiting_hospital_decision';
     sessionId?: string;
     locationPromptSent?: boolean;
     distressMessage?: string;
@@ -426,6 +435,77 @@ export class WhatsappBot {
     } catch {
       return 'pune';
     }
+  }
+
+  async runConverseAndHandle(
+    from: string,
+    convo: Array<{ role: 'user' | 'assistant'; content: string }>,
+    session: any,
+    reply: (content: string) => Promise<any>,
+  ) {
+    const baseUrl = this.getBaseUrl();
+    const res = await fetch(`${baseUrl}/api/clearpath/converse`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ messages: convo, sessionId: session.sessionId, channel: 'whatsapp' }),
+    });
+
+    if (!res.ok) {
+      throw new Error(`Converse API ${res.status}`);
+    }
+
+    const payload = await res.json();
+    const assistantReply = String(payload?.reply || 'I am here with you. Tell me what happened.');
+    const intentMode = String(payload?.intent?.mode || 'assist_only');
+    const triage = payload?.triage;
+    const sessionId = typeof payload?.sessionId === 'string' ? payload.sessionId : session.sessionId;
+
+    convo.push({ role: 'assistant', content: assistantReply });
+
+    const triageSeverity = String(triage?.severity || '').toLowerCase();
+    const latestUserText = this.getLatestUserMessage(convo) || '';
+    const wantsHospital = this.detectHospitalIntent(latestUserText);
+    const shouldRouteNow =
+      triageSeverity === 'critical' || triageSeverity === 'urgent' || (intentMode === 'triage_and_route' && wantsHospital);
+
+    if (shouldRouteNow) {
+      const mergedMessage = convo
+        .filter((m) => m.role === 'user')
+        .map((m) => m.content)
+        .join(' | ')
+        .slice(0, 600);
+
+      this.sessions.set(from, {
+        step: 'awaiting_location',
+        sessionId,
+        locationPromptSent: true,
+        distressMessage: mergedMessage,
+        imageSeverity: session.imageSeverity,
+        imageReasoning: session.imageReasoning,
+        imageConfidence: session.imageConfidence,
+        messages: convo,
+        triage,
+      });
+
+      await reply(
+        `${assistantReply}\n\n` +
+          'I can find the best hospital now. Please share your live location (📎 → Location), or send {"lat":18.5204,"lng":73.8567}.',
+      );
+      return;
+    }
+
+    this.sessions.set(from, {
+      step: 'chatting',
+      sessionId,
+      distressMessage: session.distressMessage,
+      imageSeverity: session.imageSeverity,
+      imageReasoning: session.imageReasoning,
+      imageConfidence: session.imageConfidence,
+      messages: convo,
+      triage,
+    });
+
+    await reply(assistantReply);
   }
 
   async handleText(message: any) {
@@ -558,22 +638,7 @@ export class WhatsappBot {
       });
 
       try {
-        const baseUrl = this.getBaseUrl();
-        const res = await fetch(`${baseUrl}/api/clearpath/converse`, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ messages: convo, sessionId: session.sessionId, channel: 'whatsapp' }),
-        });
-
-        if (res.ok) {
-          const payload = await res.json();
-          const reply = String(payload?.reply || 'How can I help you?');
-          convo.push({ role: 'assistant', content: reply });
-          this.sessions.set(from, { ...session, step: 'chatting', messages: convo });
-          await message.reply(reply);
-        } else {
-          await message.reply('Sure, I\'m here to help! Tell me more about what you need.');
-        }
+        await this.runConverseAndHandle(from, convo, session, (content) => message.reply(content));
       } catch (err) {
         console.error('[WA] assistance intent converse failed', err);
         await message.reply('Sure, I\'m here to help! What do you need assistance with?');
@@ -613,22 +678,7 @@ export class WhatsappBot {
       });
 
       try {
-        const baseUrl = this.getBaseUrl();
-        const res = await fetch(`${baseUrl}/api/clearpath/converse`, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ messages: convo, sessionId: session.sessionId, channel: 'whatsapp' }),
-        });
-
-        if (res.ok) {
-          const payload = await res.json();
-          const reply = String(payload?.reply || 'How can I help you?');
-          convo.push({ role: 'assistant', content: reply });
-          this.sessions.set(from, { ...session, step: 'chatting', messages: convo });
-          await message.reply(reply);
-        } else {
-          await message.reply('I\'m here to help. Tell me what\'s on your mind.');
-        }
+        await this.runConverseAndHandle(from, convo, session, (content) => message.reply(content));
       } catch (err) {
         console.error('[WA] general query converse failed', err);
         await message.reply('I\'m here to help. What can I do for you?');
@@ -642,22 +692,7 @@ export class WhatsappBot {
       convo.push({ role: 'user', content: text });
 
       try {
-        const baseUrl = this.getBaseUrl();
-        const res = await fetch(`${baseUrl}/api/clearpath/converse`, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ messages: convo, sessionId: session.sessionId, channel: 'whatsapp' }),
-        });
-
-        if (res.ok) {
-          const payload = await res.json();
-          const reply = String(payload?.reply || 'How can I help further?');
-          convo.push({ role: 'assistant', content: reply });
-          this.sessions.set(from, { ...session, messages: convo });
-          await message.reply(reply);
-        } else {
-          await message.reply('I\'m still here to help. Tell me what else I can assist with.');
-        }
+        await this.runConverseAndHandle(from, convo, session, (content) => message.reply(content));
       } catch (err) {
         console.error('[WA] continuing chat failed', err);
         await message.reply('Let me help. Tell me more.');
@@ -670,22 +705,7 @@ export class WhatsappBot {
     fallbackConvo.push({ role: 'user', content: text });
 
     try {
-      const baseUrl = this.getBaseUrl();
-      const res = await fetch(`${baseUrl}/api/clearpath/converse`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ messages: fallbackConvo, sessionId: session.sessionId, channel: 'whatsapp' }),
-      });
-
-      if (res.ok) {
-        const payload = await res.json();
-        const reply = String(payload?.reply || 'How can I help?');
-        fallbackConvo.push({ role: 'assistant', content: reply });
-        this.sessions.set(from, { ...session, step: 'chatting', messages: fallbackConvo });
-        await message.reply(reply);
-      } else {
-        await message.reply('I\'m here to help.');
-      }
+      await this.runConverseAndHandle(from, fallbackConvo, session, (content) => message.reply(content));
     } catch (err) {
       console.error('[WA] fallback converse failed', err);
       await message.reply('Tell me what you need.');
