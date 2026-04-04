@@ -113,7 +113,7 @@ export default function GovernmentSidebar({
   }, [selectedBlueprint, onBlueprintChange]);
 
   return (
-    <div className="cp-main-panel flex flex-col w-full max-w-[420px] bg-white/60 backdrop-blur-2xl border border-white/80 shadow-[0_8px_32px_rgba(99,102,241,0.12)] pointer-events-auto rounded-[24px] h-full max-h-[72vh] sm:max-h-[85vh] mr-0 sm:mr-4">
+    <div className="flex flex-col w-[420px] bg-white/60 backdrop-blur-2xl border border-white/80 shadow-[0_8px_32px_rgba(99,102,241,0.12)] pointer-events-auto rounded-[24px] h-full max-h-[85vh] mr-4">
       <div className="bg-gradient-to-br from-indigo-500 to-indigo-600 rounded-t-[24px] p-5 shrink-0 flex items-center justify-between shadow-sm">
         <div>
           <h2 className="text-white text-[15px] font-bold tracking-wide">Government Dashboard</h2>

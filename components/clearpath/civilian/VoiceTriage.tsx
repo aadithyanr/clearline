@@ -359,14 +359,14 @@ export default function VoiceTriage({ onTriageComplete }: VoiceTriageProps) {
 
   // Conversation UI
   return (
-    <div className="flex flex-col h-full min-h-0 rounded-2xl overflow-hidden">
-      <div className="flex-1 min-h-0 relative">
+    <div className="flex flex-col h-full rounded-2xl overflow-hidden">
+      <div className="flex-1 relative">
         <div className="absolute inset-0 pointer-events-none bg-[radial-gradient(ellipse_at_top,_rgba(99,102,241,0.10),_transparent_55%)]" />
         <div
           ref={chatContainerRef}
           className="relative h-full overflow-y-auto custom-scrollbar px-1 py-1"
         >
-          <div className="space-y-3 px-1.5 pb-4">
+          <div className="space-y-3 px-1.5 pb-3">
         {messages.map((msg, i) => (
           <div key={i} className={`flex ${msg.role === 'user' ? 'justify-end' : 'justify-start'}`}>
             {msg.role === 'assistant' && (
@@ -381,7 +381,7 @@ export default function VoiceTriage({ onTriageComplete }: VoiceTriageProps) {
               className={`max-w-[85%] px-4 py-3 text-sm leading-relaxed ${
                 msg.role === 'user'
                   ? 'bg-gradient-to-b from-slate-900 to-slate-800 text-white rounded-2xl rounded-tr-sm shadow-[0_10px_28px_rgba(15,23,42,0.18)]'
-                  : 'bg-white border border-slate-200 text-slate-800 rounded-2xl rounded-tl-sm shadow-[0_8px_24px_rgba(2,6,23,0.06)]'
+                  : 'bg-white/70 backdrop-blur-xl border border-white/75 text-slate-800 rounded-2xl rounded-tl-sm shadow-[0_8px_24px_rgba(2,6,23,0.06)]'
               }`}
             >
               {msg.content}
@@ -390,10 +390,10 @@ export default function VoiceTriage({ onTriageComplete }: VoiceTriageProps) {
         ))}
         {isThinking && (
           <div className="flex justify-start items-end">
-            <div className="w-7 h-7 mr-2 mb-0.5 rounded-full bg-white border border-slate-200 flex items-center justify-center shrink-0">
+            <div className="w-7 h-7 mr-2 mb-0.5 rounded-full bg-white/70 border border-white/75 backdrop-blur-xl flex items-center justify-center shrink-0">
               <div className="w-2 h-2 rounded-full bg-indigo-600 animate-pulse" />
             </div>
-            <div className="bg-white border border-slate-200 rounded-2xl rounded-tl-sm px-5 py-3 shadow-[0_8px_24px_rgba(2,6,23,0.06)]">
+            <div className="bg-white/70 backdrop-blur-xl border border-white/75 rounded-2xl rounded-tl-sm px-5 py-3 shadow-[0_8px_24px_rgba(2,6,23,0.06)]">
               <div className="flex gap-1.5">
                 <div className="w-1.5 h-1.5 bg-indigo-600 rounded-full animate-bounce" style={{ animationDelay: '0ms' }} />
                 <div className="w-1.5 h-1.5 bg-indigo-600 rounded-full animate-bounce" style={{ animationDelay: '150ms' }} />
@@ -408,7 +408,7 @@ export default function VoiceTriage({ onTriageComplete }: VoiceTriageProps) {
       </div>
 
       {/* Input dock */}
-      <div className="sticky bottom-0 z-10 pt-2 bg-white/95 backdrop-blur-md border-t border-slate-200/70 [padding-bottom:env(safe-area-inset-bottom)]">
+      <div className="relative pt-2">
         {error && (
           <div className="px-1.5 pb-2">
             <div className="px-3.5 py-2.5 bg-red-50/80 border border-red-100/80 text-red-700 rounded-2xl text-xs font-semibold backdrop-blur-xl shadow-sm">
@@ -417,14 +417,7 @@ export default function VoiceTriage({ onTriageComplete }: VoiceTriageProps) {
           </div>
         )}
 
-        <div className="mx-1.5 mb-1.5 rounded-[18px] bg-white border border-slate-200 shadow-[0_10px_26px_rgba(2,6,23,0.06)] p-2">
-          {(isListening || isSpeaking || isThinking) && (
-            <div className="mb-2 px-2 py-1.5 rounded-xl bg-slate-50 border border-slate-200 text-[11px] font-semibold text-slate-700">
-              {isListening && 'Recording in progress... tap to stop'}
-              {isSpeaking && 'Assistant is speaking...'}
-              {isThinking && 'Processing your message...'}
-            </div>
-          )}
+        <div className="mx-1.5 mb-1.5 rounded-[18px] bg-white/60 backdrop-blur-2xl border border-white/75 shadow-[0_10px_26px_rgba(2,6,23,0.06)] p-2">
           <button
             onClick={isListening ? stopListening : startListening}
             disabled={isSpeaking || isThinking}
@@ -457,12 +450,12 @@ export default function VoiceTriage({ onTriageComplete }: VoiceTriageProps) {
               onKeyDown={(e) => { if (e.key === 'Enter') handleSendText(); }}
               placeholder="Type your message..."
               disabled={isThinking || isSpeaking}
-              className="flex-1 bg-white border border-slate-300 text-slate-900 placeholder:text-slate-500 px-4 py-3 rounded-2xl text-sm font-medium focus:outline-none focus:ring-2 focus:ring-indigo-500/25 focus:border-indigo-500/60 disabled:bg-slate-100 shadow-inner"
+              className="flex-1 bg-white/85 border border-white/80 text-slate-800 px-4 py-3 rounded-2xl text-sm font-medium focus:outline-none focus:ring-2 focus:ring-indigo-500/25 focus:border-indigo-500/50 disabled:bg-slate-50 shadow-inner"
             />
             <button
               onClick={handleSendText}
               disabled={!textInput.trim() || isThinking || isSpeaking}
-              className="px-4 bg-white hover:bg-slate-50 text-slate-700 disabled:bg-slate-100 disabled:text-slate-400 rounded-2xl transition-colors shadow-inner border border-slate-300"
+              className="px-4 bg-white/85 hover:bg-white text-slate-700 disabled:bg-slate-100 disabled:text-slate-400 rounded-2xl transition-colors shadow-inner border border-white/80"
               aria-label="Send message"
             >
               <svg className="w-4 h-4" fill="none" stroke="currentColor" strokeWidth="2.5" viewBox="0 0 24 24" strokeLinecap="round" strokeLinejoin="round">

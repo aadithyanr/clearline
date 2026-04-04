@@ -35,9 +35,6 @@ export default function CivilianPanel({ cityId, onRecommendation, currentRecomme
   const [routeResult, setRouteResult] = useState<RouteResponse | null>(null);
   const [activeRouteId, setActiveRouteId] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
-  const [isMobile, setIsMobile] = useState(false);
-  const [isMinimized, setIsMinimized] = useState(false);
-  const [openAlternativesSignal, setOpenAlternativesSignal] = useState(0);
   const [sceneImage, setSceneImage] = useState<File | null>(null);
   const [imageSeverity, setImageSeverity] = useState<'high' | 'low' | null>(null);
   const [classifying, setClassifying] = useState(false);
@@ -62,26 +59,6 @@ export default function CivilianPanel({ cityId, onRecommendation, currentRecomme
       }
     }
   }, [currentRecommendation, routeResult]);
-
-  useEffect(() => {
-    if (typeof window === 'undefined') return;
-    const media = window.matchMedia('(max-width: 768px)');
-    const sync = (matches: boolean) => setIsMobile(matches);
-    sync(media.matches);
-    const onChange = (e: MediaQueryListEvent) => sync(e.matches);
-    media.addEventListener('change', onChange);
-    return () => media.removeEventListener('change', onChange);
-  }, []);
-
-  useEffect(() => {
-    if (isMobile && step === 'result' && routeResult) {
-      setIsMinimized(true);
-      return;
-    }
-    if (step !== 'result') {
-      setIsMinimized(false);
-    }
-  }, [isMobile, step, routeResult]);
 
   const handleUseMyLocation = useCallback(() => {
     setLocating(true);
@@ -228,7 +205,6 @@ export default function CivilianPanel({ cityId, onRecommendation, currentRecomme
     setActiveRouteId(null);
     setUserCoords(null);
     setError(null);
-    setIsMinimized(false);
     setSceneImage(null);
     setImageSeverity(null);
     setClassificationResult(null);
@@ -244,87 +220,25 @@ export default function CivilianPanel({ cityId, onRecommendation, currentRecomme
       setActiveRouteId(hId);
       const updated = { ...routeResult, activeRoute: scored };
       onRecommendation(updated, undefined);
-      if (isMobile) setIsMinimized(true);
     },
-    [routeResult, activeRouteId, onRecommendation, isMobile]
+    [routeResult, activeRouteId, onRecommendation]
   );
 
   const canStart = postalCode.trim().length > 0 || userCoords !== null;
   const currentStepIdx = stepIndex(step);
-  const isFullScreenFlow = isMobile && step !== 'result';
-  const panelRootClass = isFullScreenFlow
-    ? 'fixed inset-0 z-[70] flex flex-col bg-white/98 pointer-events-auto [padding-top:env(safe-area-inset-top)] [padding-bottom:env(safe-area-inset-bottom)]'
-    : 'cp-main-panel flex flex-col w-full max-w-[380px] bg-white/95 border border-slate-200/80 shadow-[0_8px_32px_rgba(2,6,23,0.14),0_1px_4px_rgba(0,0,0,0.04)] rounded-[20px] overflow-hidden pointer-events-auto max-h-[72vh] sm:max-h-[85vh]';
-
-  if (isMobile && step === 'result' && triageResult && routeResult && isMinimized) {
-    return (
-      <div className="cp-main-panel flex flex-col w-full max-w-[380px] bg-white/95 border border-slate-200/80 shadow-[0_8px_32px_rgba(2,6,23,0.14),0_1px_4px_rgba(0,0,0,0.04)] rounded-[20px] overflow-hidden pointer-events-auto p-2.5 gap-1.5">
-        <div className="flex items-center justify-between gap-2">
-          <div className="flex items-center gap-2 min-w-0">
-            <div className="w-6 h-6 rounded-full bg-blue-600 text-white flex items-center justify-center shadow-md shadow-blue-600/20 shrink-0">
-              <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><path d="M20 10c0 6-8 12-8 12s-8-6-8-12a8 8 0 0 1 16 0Z"/><circle cx="12" cy="10" r="3"/></svg>
-            </div>
-            <div className="min-w-0">
-              <p className="text-[15px] font-bold text-slate-800 truncate leading-tight">Triage Ready</p>
-              <p className="text-[11px] text-slate-500 truncate">Route shown on map</p>
-            </div>
-          </div>
-          <button
-            type="button"
-            onClick={resetFlow}
-            className="shrink-0 px-2.5 py-1 rounded-full border border-slate-200 bg-slate-50 text-[11px] font-semibold text-slate-600 leading-none"
-          >
-            Reset
-          </button>
-        </div>
-
-        <div className="grid grid-cols-2 gap-2">
-          <button
-            type="button"
-            onClick={() => setIsMinimized(false)}
-            className="w-full py-2 rounded-xl bg-blue-600 text-white text-xs font-bold"
-          >
-            Show Result
-          </button>
-          <button
-            type="button"
-            onClick={() => {
-              setOpenAlternativesSignal((prev) => prev + 1);
-              setIsMinimized(false);
-            }}
-            disabled={routeResult.alternatives.length === 0}
-            className="w-full py-2 rounded-xl border border-slate-300 bg-white text-slate-700 text-xs font-bold disabled:opacity-40"
-          >
-            Alternatives ({routeResult.alternatives.length})
-          </button>
-        </div>
-      </div>
-    );
-  }
 
   return (
-    <div className={panelRootClass}>
+    <div className="flex flex-col w-[380px] bg-white/95 border border-slate-200/80 shadow-[0_8px_32px_rgba(2,6,23,0.14),0_1px_4px_rgba(0,0,0,0.04)] rounded-[20px] overflow-hidden pointer-events-auto max-h-[85vh]">
       {/* Header */}
-      <div className={`shrink-0 px-6 ${isFullScreenFlow ? 'pt-4' : 'pt-6'} pb-4 border-b border-slate-100/50 bg-white/40`}>
-        <div className="flex items-center justify-between gap-3 mb-2">
-          <div className="flex items-center gap-3 min-w-0">
+      <div className="shrink-0 px-6 pt-6 pb-4 border-b border-slate-100/50 bg-white/40">
+        <div className="flex items-center gap-3 mb-2">
           <div className="w-8 h-8 rounded-full bg-blue-600 text-white flex items-center justify-center shadow-md shadow-blue-600/20">
             <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><path d="M20 10c0 6-8 12-8 12s-8-6-8-12a8 8 0 0 1 16 0Z"/><circle cx="12" cy="10" r="3"/></svg>
           </div>
-          <div className="min-w-0">
+          <div>
             <h2 className="text-xl font-bold text-slate-800 tracking-tight">Clearline</h2>
             <p className="text-[11px] font-semibold text-slate-400 uppercase tracking-wider">Triage & Routing</p>
           </div>
-          </div>
-          {isMobile && step === 'result' && (
-            <button
-              type="button"
-              onClick={() => setIsMinimized(true)}
-              className="shrink-0 px-2.5 py-1 rounded-full border border-slate-200 bg-slate-50 text-[11px] font-semibold text-slate-600"
-            >
-              Hide
-            </button>
-          )}
         </div>
       </div>
 
@@ -343,7 +257,7 @@ export default function CivilianPanel({ cityId, onRecommendation, currentRecomme
       </AnimatePresence>
 
       {/* Step content */}
-      <div className={`flex-1 overflow-x-hidden overflow-y-auto px-6 ${isFullScreenFlow ? 'py-4' : 'py-5'} custom-scrollbar relative`}>
+      <div className="flex-1 overflow-x-hidden overflow-y-auto px-6 py-5 custom-scrollbar relative">
         <AnimatePresence mode="wait" custom={direction}>
           {step === 'location' && (
             <motion.div key="location" custom={direction} variants={slideVariants} initial="enter" animate="center" exit="exit" transition={{ duration: 0.3 }}>
@@ -475,7 +389,6 @@ export default function CivilianPanel({ cityId, onRecommendation, currentRecomme
                 onBack={resetFlow}
                 onShowRoute={handleShowRoute}
                 activeRouteId={activeRouteId}
-                openAlternativesSignal={openAlternativesSignal}
               />
             </motion.div>
           )}

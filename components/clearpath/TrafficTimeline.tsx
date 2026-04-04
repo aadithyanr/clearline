@@ -50,8 +50,6 @@ export default function TrafficTimeline({
 }: TrafficTimelineProps) {
   const [activeStep, setActiveStep] = useState(0);
   const [dismissedAlerts, setDismissedAlerts] = useState<Set<string>>(new Set());
-  const [isMobile, setIsMobile] = useState(false);
-  const [minimized, setMinimized] = useState(false);
   const trackRef = useRef<HTMLDivElement>(null);
   const dragging = useRef(false);
 
@@ -125,22 +123,6 @@ export default function TrafficTimeline({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  useEffect(() => {
-    if (typeof window === 'undefined') return;
-
-    const media = window.matchMedia('(max-width: 768px)');
-    const sync = (matches: boolean) => {
-      setIsMobile(matches);
-      setMinimized(matches);
-    };
-
-    sync(media.matches);
-    const onChange = (e: MediaQueryListEvent) => sync(e.matches);
-    media.addEventListener('change', onChange);
-
-    return () => media.removeEventListener('change', onChange);
-  }, []);
-
   const handleDismiss = useCallback((alertId: string) => {
     setDismissedAlerts(prev => new Set(prev).add(alertId));
   }, []);
@@ -154,23 +136,8 @@ export default function TrafficTimeline({
     ? `linear-gradient(to right, ${segColors.map((s, i) => `${s.color} ${(i / (segColors.length - 1)) * 100}%`).join(', ')})`
     : segColors[0]?.color ?? '#22c55e';
 
-  if (isMobile && minimized) {
-    return (
-      <button
-        type="button"
-        onClick={() => setMinimized(false)}
-        className="cp-timeline-chip absolute z-30 left-3 right-3 rounded-full border border-sky-200 bg-white/95 backdrop-blur-xl px-4 py-2.5 shadow-lg text-left"
-      >
-        <span className="flex items-center justify-between gap-2">
-          <span className="text-xs font-bold tracking-wider text-slate-700 uppercase">Traffic Prediction</span>
-          <span className="text-xs font-semibold text-slate-500">Tap to expand</span>
-        </span>
-      </button>
-    );
-  }
-
   return (
-    <div className="cp-timeline absolute bottom-3 sm:bottom-6 right-2 sm:right-6 z-30 w-[min(420px,calc(100vw-1rem))] sm:w-[min(420px,calc(100vw-2rem))]">
+    <div className="absolute bottom-6 right-6 z-20 w-[min(420px,calc(100vw-2rem))] min-w-[320px]">
       {/* Reroute alert cards — stack above the timeline */}
       {alerts.length > 0 && (
         <div className="mb-2 space-y-2">
@@ -187,14 +154,14 @@ export default function TrafficTimeline({
                     <p className={`text-[11px] font-bold ${colors.text} uppercase tracking-wider`}>
                       {alert.title}
                     </p>
-                    <p className="text-xs text-slate-600 leading-relaxed mt-1">
+                    <p className="text-[10px] text-slate-600 leading-relaxed mt-1">
                       {alert.description}
                     </p>
                     <div className="flex items-center gap-2 mt-2">
                       <button
                         onClick={() => { onRerouteRequest(alert); handleDismiss(alert.id); }}
                         disabled={isRerouting}
-                        className={`px-3 py-1 rounded-full text-xs font-bold uppercase tracking-wide transition-colors ${alert.severity === 'critical'
+                        className={`px-3 py-1 rounded-full text-[10px] font-bold uppercase tracking-wide transition-colors ${alert.severity === 'critical'
                             ? 'bg-red-500 hover:bg-red-400 text-white'
                             : 'bg-amber-500 hover:bg-amber-400 text-slate-900'
                           } ${isRerouting ? 'opacity-50 cursor-wait' : ''}`}
@@ -203,7 +170,7 @@ export default function TrafficTimeline({
                       </button>
                       <button
                         onClick={() => handleDismiss(alert.id)}
-                        className="px-2 py-1 text-xs text-slate-500 hover:text-slate-700 transition-colors"
+                        className="px-2 py-1 text-[10px] text-slate-500 hover:text-slate-700 transition-colors"
                       >
                         Dismiss
                       </button>
@@ -229,25 +196,6 @@ export default function TrafficTimeline({
             {current.label}
           </span>
         </div>
-
-        {isMobile && (
-          <div className="mb-3 flex items-center justify-between">
-            <span className="text-[10px] font-semibold text-slate-400 uppercase tracking-wider">
-              Drag slider to preview traffic
-            </span>
-            <button
-              type="button"
-              onClick={() => setMinimized(true)}
-              className="inline-flex items-center gap-1 rounded-full border border-slate-200 bg-slate-50 px-2.5 py-1 text-xs font-semibold text-slate-600 hover:bg-slate-100"
-              aria-label="Hide traffic timeline"
-            >
-              Hide
-              <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
-                <path d="m6 15 6-6 6 6" />
-              </svg>
-            </button>
-          </div>
-        )}
 
         {/* Congestion preview bar */}
         <div
@@ -300,8 +248,8 @@ export default function TrafficTimeline({
 
         {/* Time labels */}
         <div className="flex justify-between mt-1.5">
-          <span className="text-[11px] text-slate-500">Now</span>
-          <span className="text-[11px] text-slate-500">{predictions[predictions.length - 1]?.label}</span>
+          <span className="text-[9px] text-slate-500">Now</span>
+          <span className="text-[9px] text-slate-500">{predictions[predictions.length - 1]?.label}</span>
         </div>
 
         {/* Stats row */}
@@ -321,7 +269,7 @@ export default function TrafficTimeline({
                           : '#dc2626',
                 }}
               />
-              <span className="text-xs text-slate-600 font-medium">
+              <span className="text-[10px] text-slate-600 font-medium">
                 {current.avgCongestionLevel < 1.5
                   ? 'Clear'
                   : current.avgCongestionLevel < 2.5
@@ -331,7 +279,7 @@ export default function TrafficTimeline({
                       : 'Severe'}
               </span>
             </div>
-            <span className="text-xs text-slate-500">
+            <span className="text-[10px] text-slate-500">
               Drive time: {current.drivingTimeMultiplier > 1 ? '+' : ''}
               {Math.round((current.drivingTimeMultiplier - 1) * 100)}%
             </span>
@@ -340,7 +288,7 @@ export default function TrafficTimeline({
           {alerts.length > 0 && (
             <div className="flex items-center gap-1.5">
               <div className="w-2 h-2 rounded-full bg-amber-400 animate-pulse" />
-              <span className="text-xs text-amber-700 font-semibold">
+              <span className="text-[10px] text-amber-700 font-semibold">
                 {alerts.length} alert{alerts.length > 1 ? 's' : ''}
               </span>
             </div>
@@ -355,7 +303,7 @@ export default function TrafficTimeline({
                 className="w-1.5 h-1.5 rounded-full"
                 style={{ backgroundColor: CONGESTION_COLORS[level] }}
               />
-              <span className="text-[11px] text-slate-600 capitalize">{level}</span>
+              <span className="text-[8px] text-slate-600 capitalize">{level}</span>
             </div>
           ))}
         </div>

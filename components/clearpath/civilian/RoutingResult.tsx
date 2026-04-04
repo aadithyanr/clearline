@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useState } from 'react';
+import { useState } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { ScoredHospital } from '@/lib/clearpath/types';
 
@@ -12,7 +12,6 @@ interface RoutingResultProps {
   onBack: () => void;
   onShowRoute?: (scored: ScoredHospital) => void;
   activeRouteId?: string | null;
-  openAlternativesSignal?: number;
 }
 
 const severityConfig = {
@@ -34,12 +33,12 @@ function HospitalCard({ scored, rank, onShowRoute, isRouteActive }: { scored: Sc
     >
       <div className="flex items-start justify-between gap-2">
         <div className="min-w-0">
-          {isTop && <span className="inline-block px-2.5 py-0.5 rounded-full bg-blue-100 text-blue-700 text-xs font-bold uppercase tracking-wider mb-2">Best Match</span>}
+          {isTop && <span className="inline-block px-2.5 py-0.5 rounded-full bg-blue-100 text-blue-700 text-[9px] font-bold uppercase tracking-wider mb-2">Best Match</span>}
           <p className={`font-bold truncate ${isTop ? 'text-base text-slate-900' : 'text-sm text-slate-800'}`}>
             {h.name}
           </p>
         </div>
-        {scored.specialtyMatch && <span className="shrink-0 px-2.5 py-0.5 rounded-full bg-purple-50 text-purple-600 border border-purple-100 text-xs font-bold uppercase tracking-wider">Specialty</span>}
+        {scored.specialtyMatch && <span className="shrink-0 px-2.5 py-0.5 rounded-full bg-purple-50 text-purple-600 border border-purple-100 text-[9px] font-bold uppercase tracking-wider">Specialty</span>}
       </div>
 
       <div className="grid grid-cols-3 gap-2 mt-4">
@@ -49,13 +48,13 @@ function HospitalCard({ scored, rank, onShowRoute, isRouteActive }: { scored: Sc
           { label: 'Total', value: `${scored.totalEstimatedMinutes}m`, bg: 'bg-emerald-50/50', color: 'text-emerald-700' },
         ].map((stat) => (
           <div key={stat.label} className={`${stat.bg} rounded-xl p-2 border border-slate-50 text-center`}>
-            <p className="text-[11px] font-bold text-slate-500 uppercase tracking-wider">{stat.label}</p>
+            <p className="text-[8px] font-bold text-slate-500 uppercase tracking-widest">{stat.label}</p>
             <p className={`font-black mt-0.5 ${stat.color} ${isTop ? 'text-lg' : 'text-base'}`}>{stat.value}</p>
           </div>
         ))}
       </div>
 
-      <div className="flex items-center gap-2 text-xs font-semibold text-slate-500 mt-3">
+      <div className="flex items-center gap-2 text-[10px] font-semibold text-slate-400 mt-3">
         <span>{scored.distanceKm} km away</span>
         <span className="text-slate-200">•</span>
         <span>{scored.occupancyPct}% full</span>
@@ -97,15 +96,9 @@ function HospitalCard({ scored, rank, onShowRoute, isRouteActive }: { scored: Sc
   );
 }
 
-export default function RoutingResult({ severity, reasoning, recommended, alternatives, onBack, onShowRoute, activeRouteId, openAlternativesSignal = 0 }: RoutingResultProps) {
+export default function RoutingResult({ severity, reasoning, recommended, alternatives, onBack, onShowRoute, activeRouteId }: RoutingResultProps) {
   const [showAlts, setShowAlts] = useState(false);
   const config = severityConfig[severity];
-
-  useEffect(() => {
-    if (openAlternativesSignal > 0 && alternatives.length > 0) {
-      setShowAlts(true);
-    }
-  }, [openAlternativesSignal, alternatives.length]);
 
   return (
     <div className="space-y-4">
@@ -115,7 +108,7 @@ export default function RoutingResult({ severity, reasoning, recommended, altern
         initial={{ scale: 0.95, opacity: 0 }} animate={{ scale: 1, opacity: 1 }}
         transition={{ type: 'spring', stiffness: 300, damping: 20 }}
       >
-        <p className={`text-xs font-bold ${config.text} uppercase tracking-[0.16em] opacity-80`}>Triage Classification</p>
+        <p className={`text-[10px] font-bold ${config.text} uppercase tracking-[0.2em] opacity-80`}>Triage Classification</p>
         <p className={`text-2xl font-black ${config.text} uppercase tracking-tight mt-1`}>{config.label}</p>
       </motion.div>
 
@@ -124,7 +117,7 @@ export default function RoutingResult({ severity, reasoning, recommended, altern
         className="bg-white border border-slate-100 rounded-2xl p-4 shadow-sm"
         initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.15 }}
       >
-        <p className="flex items-center gap-1.5 text-xs font-bold text-blue-600 uppercase tracking-wider mb-2">
+        <p className="flex items-center gap-1.5 text-[10px] font-bold text-blue-600 uppercase tracking-widest mb-2">
           <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round"><circle cx="12" cy="12" r="10"/><path d="M12 16v-4"/><path d="M12 8h.01"/></svg>
           AI Assessment
         </p>
