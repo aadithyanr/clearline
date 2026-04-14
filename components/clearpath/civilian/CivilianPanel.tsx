@@ -194,7 +194,7 @@ export default function CivilianPanel({ cityId, onRecommendation, currentRecomme
         goTo('conversation');
       }
     },
-    [cityId, userCoords, postalCode, onRecommendation, goTo]
+    [cityId, userCoords, postalCode, imageSeverity, onRecommendation, goTo]
   );
 
   const resetFlow = () => {
